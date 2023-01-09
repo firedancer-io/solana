@@ -5,6 +5,7 @@ use {
     solana_cli_output::CliAccount,
     solana_client::rpc_request::MAX_MULTIPLE_ACCOUNTS,
     solana_core::{
+        sigverify_frank_stage::SigVerifyFrankConfig,
         tower_storage::TowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
     },
@@ -125,6 +126,7 @@ pub struct TestValidatorGenesis {
     pub log_messages_bytes_limit: Option<usize>,
     pub transaction_account_lock_limit: Option<usize>,
     pub tpu_enable_udp: bool,
+    pub frank: Option<SigVerifyFrankConfig>,
 }
 
 impl Default for TestValidatorGenesis {
@@ -156,6 +158,7 @@ impl Default for TestValidatorGenesis {
             log_messages_bytes_limit: Option::<usize>::default(),
             transaction_account_lock_limit: Option::<usize>::default(),
             tpu_enable_udp: DEFAULT_TPU_ENABLE_UDP,
+            frank: None,
         }
     }
 }
@@ -821,6 +824,7 @@ impl TestValidator {
             accounts_db_config,
             runtime_config,
             account_indexes: config.rpc_config.account_indexes.clone(),
+            frank: config.frank.clone(),
             ..ValidatorConfig::default_for_test()
         };
         if let Some(ref tower_storage) = config.tower_storage {

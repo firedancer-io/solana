@@ -14,7 +14,7 @@ use {
         pubkey::Pubkey,
         signature::{read_keypair_file, Keypair, Signature, Signer},
     },
-    std::{str::FromStr, sync::Arc},
+    std::{ops, str::FromStr, sync::Arc},
 };
 
 // Sentinel value used to indicate to write to screen instead of file
@@ -192,6 +192,34 @@ pub fn commitment_of(matches: &ArgMatches<'_>, name: &str) -> Option<CommitmentC
     matches
         .value_of(name)
         .map(|value| CommitmentConfig::from_str(value).unwrap_or_default())
+}
+
+pub struct Range(ops::Range<usize>);
+
+impl FromStr for Range {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, <Self as FromStr>::Err> {
+        let mut split = s.splitn(2, '-');
+        let start = split.next().unwrap().parse::<usize>()?;
+
+        let mut end = split
+            .next()
+            .map(|s| s.parse::<usize>())
+            .unwrap_or(Ok(start + 1))?;
+
+        if start >= end {
+            end = start + 1;
+        }
+
+        Ok(Self(start..end))
+    }
+}
+
+impl From<Range> for ops::Range<usize> {
+    fn from(other: Range) -> Self {
+        other.0
+    }
 }
 
 #[cfg(test)]

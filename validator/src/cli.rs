@@ -3,6 +3,7 @@ use {
     lazy_static::lazy_static,
     log::warn,
     solana_clap_utils::{
+        input_parsers,
         input_validators::{
             is_keypair, is_keypair_or_ask_keyword, is_niceness_adjustment_valid, is_parsable,
             is_pow2, is_pubkey, is_pubkey_or_keypair, is_slot, is_url_or_moniker,
@@ -2220,6 +2221,33 @@ pub fn test_app<'a>(version: &'a str, default_args: &'a DefaultTestArgs) -> App<
                 .validator(is_parsable::<u64>)
                 .takes_value(true)
                 .help("Override the runtime's account lock limit per transaction")
+        )
+        .arg(
+            Arg::with_name("frank")
+                .long("frank")
+                .takes_value(false)
+                .help("Run in Frankendancer SigVerify mode")
+                .requires_all(&["frank_app_name", "frank_wksp", "frank_sigverify_tiles"]),
+        )
+        .arg(
+            Arg::with_name("frank_app_name")
+                .long("frank-app-name")
+                .takes_value(true)
+                .help("Name of Firedancer instance")
+        )
+        .arg(
+            Arg::with_name("frank_wksp")
+                .long("frank-wksp")
+                .takes_value(true)
+                .validator(|s| if s.split(':').count() == 2 { Ok(()) } else { Err("Invalid workspace address".to_owned()) })
+                .help("Address of Firedancer root pod")
+        )
+        .arg(
+            Arg::with_name("frank_sigverify_tiles")
+                .long("frank-sigverify-tiles")
+                .takes_value(true)
+                .validator(is_parsable::<input_parsers::Range>)
+                .help("Range of sigverify tiles for normal txns")
         );
 }
 

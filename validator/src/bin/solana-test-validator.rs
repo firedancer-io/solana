@@ -3,10 +3,10 @@ use {
     crossbeam_channel::unbounded,
     log::*,
     solana_clap_utils::{
-        input_parsers::{pubkey_of, pubkeys_of, value_of},
+        input_parsers::{self, pubkey_of, pubkeys_of, value_of},
         input_validators::normalize_to_url_if_moniker,
     },
-    solana_core::tower_storage::FileTowerStorage,
+    solana_core::{sigverify_frank_stage::SigVerifyFrankConfig, tower_storage::FileTowerStorage},
     solana_faucet::faucet::run_local_faucet_with_port,
     solana_rpc::{
         rpc::{JsonRpcConfig, RpcBigtableConfig},
@@ -489,6 +489,19 @@ fn main() {
 
     if let Some(compute_unit_limit) = compute_unit_limit {
         genesis.compute_unit_limit(compute_unit_limit);
+    }
+
+    if matches.is_present("frank") {
+        genesis.frank = Some(SigVerifyFrankConfig {
+            app_name: matches.value_of("frank_app_name").unwrap().to_owned(),
+            root_pod: matches.value_of("frank_wksp").unwrap().to_owned(),
+            verify_tiles: matches
+                .value_of("frank_sigverify_tiles")
+                .unwrap()
+                .parse::<input_parsers::Range>()
+                .unwrap()
+                .into(),
+        })
     }
 
     match genesis.start_with_mint_address(mint_address, socket_addr_space) {
