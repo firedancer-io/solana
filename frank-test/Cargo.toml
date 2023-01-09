@@ -1,0 +1,22 @@
+[package]
+name = "solana-frank-test"
+description = "Test Frankendancer modules"
+version = "1.15.0"
+homepage = "https://solana.com/"
+documentation = "https://docs.rs/solana-core"
+readme = "../README.md"
+repository = "https://github.com/solana-labs/solana"
+authors = ["Firedancer Contributors <firedancer-devs@jumptrading.com>"]
+license = "Apache-2.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+crossbeam-channel = "0.5"
+log = "0.4.17"
+rand = "0.7.0"
+solana-clap-utils = { path = "../clap-utils", version = "=1.15.0" }
+solana-core = { path = "../core", version = "=1.15.0" }
+solana-logger = { path = "../logger", version = "=1.15.0" }
+solana-perf = { path = "../perf", version = "=1.15.0" }
+solana-sdk = { path = "../sdk", version = "=1.15.0" }

@@ -23,6 +23,7 @@ members = [
     "download-utils",
     "entry",
     "faucet",
+    "frank-test",
     "frozen-abi",
     "genesis",
     "genesis-utils",
