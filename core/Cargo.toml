@@ -14,6 +14,7 @@ edition = "2021"
 codecov = { repository = "solana-labs/solana", branch = "master", service = "github" }
 
 [dependencies]
+firedancer = { path = "../../firedancer/rshim", version = "=0.1.0" }
 ahash = "0.7.6"
 base64 = "0.13.0"
 bincode = "1.3.3"

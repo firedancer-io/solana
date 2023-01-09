@@ -63,6 +63,7 @@ pub mod serve_repair;
 pub mod serve_repair_service;
 mod shred_fetch_stage;
 pub mod sigverify;
+pub mod sigverify_frank_stage;
 pub mod sigverify_shreds;
 pub mod sigverify_stage;
 pub mod snapshot_packager_service;

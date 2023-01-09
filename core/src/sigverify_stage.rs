@@ -6,7 +6,9 @@
 //! if perf-libs are available
 
 use {
-    crate::{find_packet_sender_stake_stage, sigverify},
+    crate::{
+        find_packet_sender_stake_stage, sigverify, sigverify_frank_stage::SigVerifyFrankStage,
+    },
     core::time::Duration,
     crossbeam_channel::{RecvTimeoutError, SendError},
     itertools::Itertools,
@@ -49,6 +51,22 @@ pub enum SigVerifyServiceError<SendType> {
 }
 
 type Result<T, SendType> = std::result::Result<T, SigVerifyServiceError<SendType>>;
+
+pub enum SigVerifyStageWrapper {
+    None,
+    Native(SigVerifyStage),
+    Frank(SigVerifyFrankStage),
+}
+
+impl SigVerifyStageWrapper {
+    pub fn join(self) -> thread::Result<()> {
+        match self {
+            Self::None => Ok(()),
+            Self::Native(stage) => stage.thread_hdl.join(),
+            Self::Frank(stage) => stage.thread_hdl.join(),
+        }
+    }
+}
 
 pub struct SigVerifyStage {
     thread_hdl: JoinHandle<()>,

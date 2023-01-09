@@ -12,7 +12,8 @@ use {
         fetch_stage::FetchStage,
         find_packet_sender_stake_stage::FindPacketSenderStakeStage,
         sigverify::TransactionSigVerifier,
-        sigverify_stage::SigVerifyStage,
+        sigverify_frank_stage::{SigVerifyFrankConfig, SigVerifyFrankStage},
+        sigverify_stage::{SigVerifyStage, SigVerifyStageWrapper},
         staked_nodes_updater_service::StakedNodesUpdaterService,
     },
     crossbeam_channel::{unbounded, Receiver},
@@ -58,8 +59,8 @@ pub struct TpuSockets {
 
 pub struct Tpu {
     fetch_stage: FetchStage,
-    sigverify_stage: SigVerifyStage,
-    vote_sigverify_stage: SigVerifyStage,
+    sigverify_stage: SigVerifyStageWrapper,
+    vote_sigverify_stage: SigVerifyStageWrapper,
     banking_stage: BankingStage,
     cluster_info_vote_listener: ClusterInfoVoteListener,
     broadcast_stage: BroadcastStage,
@@ -99,6 +100,7 @@ impl Tpu {
         staked_nodes: &Arc<RwLock<StakedNodes>>,
         shared_staked_nodes_overrides: Arc<RwLock<HashMap<Pubkey, u64>>>,
         tpu_enable_udp: bool,
+        frank: Option<SigVerifyFrankConfig>,
     ) -> Self {
         let TpuSockets {
             transactions: transactions_sockets,
@@ -187,21 +189,39 @@ impl Tpu {
         )
         .unwrap();
 
-        let sigverify_stage = {
-            let verifier = TransactionSigVerifier::new(verified_sender);
-            SigVerifyStage::new(find_packet_sender_stake_receiver, verifier, "tpu-verifier")
-        };
-
         let (verified_tpu_vote_packets_sender, verified_tpu_vote_packets_receiver) = unbounded();
 
-        let vote_sigverify_stage = {
-            let verifier =
-                TransactionSigVerifier::new_reject_non_vote(verified_tpu_vote_packets_sender);
-            SigVerifyStage::new(
-                vote_find_packet_sender_stake_receiver,
-                verifier,
-                "tpu-vote-verifier",
-            )
+        let (sigverify_stage, vote_sigverify_stage) = match &frank {
+            None => {
+                info!("Running native SigVerify stages");
+
+                let sigverify_stage = SigVerifyStageWrapper::Native(SigVerifyStage::new(
+                    find_packet_sender_stake_receiver,
+                    TransactionSigVerifier::new(verified_sender),
+                    "tpu-verifier",
+                ));
+
+                let vote_sigverify_stage = SigVerifyStageWrapper::Native(SigVerifyStage::new(
+                    vote_find_packet_sender_stake_receiver,
+                    TransactionSigVerifier::new_reject_non_vote(verified_tpu_vote_packets_sender),
+                    "tpu-vote-verifier",
+                ));
+
+                (sigverify_stage, vote_sigverify_stage)
+            }
+            Some(frank_config) => {
+                info!("Running Frankendancer SigVerify stage");
+
+                let sigverify_stage = SigVerifyStageWrapper::Frank(SigVerifyFrankStage::new(
+                    verified_sender,
+                    verified_tpu_vote_packets_sender,
+                    find_packet_sender_stake_receiver,
+                    vote_find_packet_sender_stake_receiver,
+                    frank_config.clone(),
+                ));
+
+                (sigverify_stage, SigVerifyStageWrapper::None)
+            }
         };
 
         let (verified_gossip_vote_packets_sender, verified_gossip_vote_packets_receiver) =

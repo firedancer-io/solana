@@ -16,6 +16,7 @@ use {
         serve_repair::ServeRepair,
         serve_repair_service::ServeRepairService,
         sigverify,
+        sigverify_frank_stage::SigVerifyFrankConfig,
         snapshot_packager_service::SnapshotPackagerService,
         stats_reporter_service::StatsReporterService,
         system_monitor_service::{
@@ -176,6 +177,8 @@ pub struct ValidatorConfig {
     pub ledger_column_options: LedgerColumnOptions,
     pub runtime_config: RuntimeConfig,
     pub replay_slots_concurrently: bool,
+    // Frankendancer config
+    pub frank: Option<SigVerifyFrankConfig>,
 }
 
 impl Default for ValidatorConfig {
@@ -238,6 +241,7 @@ impl Default for ValidatorConfig {
             ledger_column_options: LedgerColumnOptions::default(),
             runtime_config: RuntimeConfig::default(),
             replay_slots_concurrently: false,
+            frank: None,
         }
     }
 }
@@ -1017,6 +1021,7 @@ impl Validator {
             &staked_nodes,
             config.staked_nodes_overrides.clone(),
             tpu_enable_udp,
+            config.frank.clone(),
         );
 
         datapoint_info!(
