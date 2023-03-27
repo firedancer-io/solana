@@ -289,6 +289,14 @@ pub fn new_cluster_nodes<T: 'static>(
 ) -> ClusterNodes<T> {
     let self_pubkey = cluster_info.id();
     let nodes = get_nodes(cluster_info, stakes);
+    // v weed out nodes that have no contact_info to 
+    //   avoid cluster_nodes.get_broadcast_peer() skipping
+    //   production of packet for the shreds that are destinated to
+    //   nodes without contact_info => effectively packet drops
+    let nodes : Vec<Node> = nodes
+        .into_iter()
+        .filter(|n| (*n).contact_info().is_some())
+        .collect();
     let index: HashMap<_, _> = nodes
         .iter()
         .enumerate()
