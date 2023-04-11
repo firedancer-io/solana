@@ -17,6 +17,9 @@ use {
     },
 };
 
+use std::backtrace::Backtrace;
+use log::info;
+
 pub type SlotCache = Arc<SlotCacheInner>;
 
 #[derive(Debug)]
@@ -72,6 +75,13 @@ impl SlotCacheInner {
         hash: Option<impl Borrow<Hash>>,
         slot: Slot,
     ) -> CachedAccount {
+        let printable = format!("{}", pubkey);
+
+        if printable == "StakeConfig11111111111111111111111111111111" {
+            let bt = Backtrace::capture();
+            info!("account_caches::insert {:?}", bt);
+        }
+
         let data_len = account.data().len() as u64;
         let item = Arc::new(CachedAccountInner {
             account,

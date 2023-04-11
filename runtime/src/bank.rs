@@ -163,6 +163,9 @@ use {
     },
 };
 
+use std::backtrace::Backtrace;
+use log::info;
+
 #[derive(Debug, Default)]
 struct RewardsMetrics {
     load_vote_and_stake_accounts_us: AtomicU64,
@@ -1551,6 +1554,9 @@ impl Bank {
         reward_calc_tracer: Option<impl Fn(&RewardCalculationEvent) + Send + Sync>,
         new_bank_options: NewBankOptions,
     ) -> Self {
+        let bt = Backtrace::capture();
+        info!("_new_from_parent collector_id: {} slot: {} bt: {}", collector_id, slot, bt);
+
         let mut time = Measure::start("bank::new_from_parent");
         let NewBankOptions { vote_only_bank } = new_bank_options;
 
@@ -5716,6 +5722,8 @@ impl Bank {
         pubkey: &Pubkey,
         lamports: u64,
     ) -> std::result::Result<u64, LamportsError> {
+        info!("banks::deposit into {} for {}", pubkey, lamports);
+
         // This doesn't collect rents intentionally.
         // Rents should only be applied to actual TXes
         let mut account = self.get_account_with_fixed_root(pubkey).unwrap_or_default();
@@ -6029,9 +6037,10 @@ impl Bank {
         }
 
         info!(
-            "bank frozen: {} hash: {} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}",
+            "bank frozen: {} hash: {} parent_hash: {}  accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}",
             self.slot(),
             hash,
+            self.parent_hash,
             accounts_delta_hash.hash,
             self.signature_count(),
             self.last_blockhash(),

@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "sdump",
     "account-decoder",
     "accounts-bench",
     "accounts-cluster-bench",
