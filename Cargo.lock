@@ -4216,7 +4216,7 @@ dependencies = [
  "serde_json",
  "solana-ledger",
  "solana-runtime",
- "solana-sdk 1.13.6",
+ "solana-sdk 1.13.7",
 ]
 
 [[package]]
@@ -7068,9 +7068,9 @@ checksum = "e45b7bf6e19353ddd832745c8fcf77a17a93171df7151187f26623f2b75b5b26"
 dependencies = [
  "cfg-if 1.0.0",
  "proc-macro-error",
- "proc-macro2 1.0.32",
+ "proc-macro2 1.0.56",
  "quote 1.0.10",
- "syn 1.0.91",
+ "syn 1.0.109",
 ]
 
 [[package]]
