@@ -9,6 +9,10 @@ use {
     std::{cell::RefCell, collections::HashSet, sync::RwLock},
 };
 
+use std::backtrace::Backtrace;
+use log::info;
+extern crate serde_yaml;
+
 type AccountsDbFields = super::AccountsDbFields<SerializableAccountStorageEntry>;
 
 #[derive(Default, Clone, PartialEq, Debug, Deserialize, Serialize, AbiExample)]
@@ -22,7 +26,7 @@ struct UnusedAccounts {
 // because it's handled by SerializableVersionedBank.
 // So, sync fields with it!
 #[derive(Clone, Deserialize)]
-struct DeserializableVersionedBank {
+pub struct DeserializableVersionedBank {
     blockhash_queue: BlockhashQueue,
     ancestors: AncestorsForSerialization,
     hash: Hash,
@@ -99,7 +103,7 @@ impl From<DeserializableVersionedBank> for BankFieldsToDeserialize {
 // Serializable version of Bank, not Deserializable to avoid cloning by using refs.
 // Sync fields with DeserializableVersionedBank!
 #[derive(Serialize)]
-struct SerializableVersionedBank<'a> {
+pub struct SerializableVersionedBank<'a> {
     blockhash_queue: &'a RwLock<BlockhashQueue>,
     ancestors: &'a AncestorsForSerialization,
     hash: Hash,
@@ -188,10 +192,12 @@ impl<'a> TypeContext<'a> for Context {
     where
         Self: std::marker::Sized,
     {
+
         let ancestors = HashMap::from(&serializable_bank.bank.ancestors);
         let fields = serializable_bank.bank.get_fields_to_serialize(&ancestors);
         let lamports_per_signature = fields.fee_rate_governor.lamports_per_signature;
-        (
+
+        let manifest = (
             SerializableVersionedBank::from(fields),
             SerializableAccountsDb::<'a, Self> {
                 accounts_db: &*serializable_bank.bank.rc.accounts.accounts_db,
@@ -202,8 +208,13 @@ impl<'a> TypeContext<'a> for Context {
             // Field that isn't part SerializableVersionedBank, but that we want to
             // be able to store / read back on restart
             lamports_per_signature,
-        )
-            .serialize(serializer)
+        );
+
+        let bt = Backtrace::capture();
+        //info!("serialize_bank_and_storage bt: {}  val: {}", bt, serde_yaml::to_string(&manifest).unwrap());
+        info!("serialize_bank_and_storage bt: {}", bt);
+
+        manifest.serialize(serializer)
     }
 
     #[cfg(test)]

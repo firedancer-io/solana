@@ -1883,6 +1883,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashbrown"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
+
+[[package]]
 name = "headers"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2168,12 +2174,12 @@ checksum = "5a9d968042a4902e08810946fc7cd5851eb75e80301342305af755ca06cb82ce"
 
 [[package]]
 name = "indexmap"
-version = "1.8.1"
+version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f647032dfaa1f8b6dc29bd3edb7bbef4861b8b8007ebb118d6db284fd59f6ee"
+checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
- "hashbrown",
+ "hashbrown 0.12.3",
  "rayon",
 ]
 
@@ -2548,7 +2554,7 @@ version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32613e41de4c47ab04970c348ca7ae7382cf116625755af070b008a15516a889"
 dependencies = [
- "hashbrown",
+ "hashbrown 0.11.2",
 ]
 
 [[package]]
@@ -3233,7 +3239,7 @@ dependencies = [
  "serde",
  "serde_cbor",
  "serde_json",
- "serde_yaml",
+ "serde_yaml 0.8.23",
 ]
 
 [[package]]
@@ -4359,6 +4365,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml"
+version = "0.9.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9d684e3ec7de3bf5466b32bd75303ac16f0736426e5a4e0d6e489559ce1249c"
+dependencies = [
+ "indexmap",
+ "itoa 1.0.1",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "serial_test"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4759,7 +4778,7 @@ dependencies = [
  "log",
  "rayon",
  "serde_json",
- "serde_yaml",
+ "serde_yaml 0.8.23",
  "serial_test",
  "solana-clap-utils",
  "solana-cli-config",
@@ -4927,7 +4946,7 @@ dependencies = [
  "lazy_static",
  "serde",
  "serde_derive",
- "serde_yaml",
+ "serde_yaml 0.8.23",
  "solana-clap-utils",
  "solana-sdk 1.13.7",
  "url 2.2.2",
@@ -5290,7 +5309,7 @@ dependencies = [
  "clap 2.33.3",
  "serde",
  "serde_json",
- "serde_yaml",
+ "serde_yaml 0.8.23",
  "solana-clap-utils",
  "solana-cli-config",
  "solana-entry",
@@ -5407,7 +5426,7 @@ dependencies = [
  "reqwest",
  "semver 1.0.6",
  "serde",
- "serde_yaml",
+ "serde_yaml 0.8.23",
  "solana-clap-utils",
  "solana-client",
  "solana-config-program",
@@ -6045,6 +6064,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "fnv",
+ "hex 0.4.3",
  "im",
  "index_list",
  "itertools",
@@ -6064,6 +6084,8 @@ dependencies = [
  "rustc_version 0.4.0",
  "serde",
  "serde_derive",
+ "serde_json",
+ "serde_yaml 0.9.21",
  "solana-address-lookup-table-program",
  "solana-bucket-map",
  "solana-compute-budget-program",
@@ -7734,6 +7756,12 @@ checksum = "382810877fe448991dfc7f0dd6e3ae5d58088fd0ea5e35189655f84e6814fa56"
 dependencies = [
  "void",
 ]
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1865806a559042e51ab5414598446a5871b561d21b6764f2eabb0dd481d880a6"
 
 [[package]]
 name = "untrusted"

@@ -163,6 +163,9 @@ use {
     },
 };
 
+//use crate::serde_snapshot::{bank_from_streams, bank_to_stream, SerdeStyle, SnapshotStreams};
+use crate::serde_snapshot::newer::SerializableVersionedBank;
+
 use std::backtrace::Backtrace;
 use log::info;
 
@@ -3050,6 +3053,7 @@ impl Bank {
         // BankingStage doesn't release this hash lock until both
         // record and commit are finished, those transactions will be
         // committed before this write lock can be obtained here.
+        {
         let mut hash = self.hash.write().unwrap();
         if *hash == Hash::default() {
             // finish up any deferred changes to account state
@@ -3063,6 +3067,21 @@ impl Bank {
             self.freeze_started.store(true, Relaxed);
             *hash = self.hash_internal_state();
             self.rc.accounts.accounts_db.mark_slot_frozen(self.slot());
+        }
+        } // Unlock the hash
+
+        let mut buf_stream = std::io::Cursor::new(Vec::new());
+        let ancestors = HashMap::from(&self.ancestors);
+        let bank_fields = self.get_fields_to_serialize(&ancestors);
+        let svb = SerializableVersionedBank::from(bank_fields);
+        bincode::serialize_into(&mut buf_stream, &svb).unwrap();
+
+        let hash = hashv(&[buf_stream.get_ref()]);
+
+        if buf_stream.get_ref().len() < 20000 {
+            info!("serialized_bank_hash slot: {}, len: {}  hash: {}  data: {}",self.slot(), buf_stream.get_ref().len(), hash, hex::encode(buf_stream.get_ref()));
+        } else {
+            info!("serialized_bank_hash slot: {}, len: {}  hash: {}",self.slot(), buf_stream.get_ref().len(), hash);
         }
     }
 
@@ -3213,6 +3232,9 @@ impl Bank {
         for (name, program_id) in &genesis_config.native_instruction_processors {
             self.add_builtin_account(name, program_id, false);
         }
+
+        let bt = Backtrace::capture();
+        info!("process_genesis_config bt: {}", bt);
     }
 
     fn burn_and_purge_account(&self, program_id: &Pubkey, mut account: AccountSharedData) {
@@ -4447,6 +4469,9 @@ impl Bank {
         tx_wide_compute_cap: bool,
         support_set_compute_unit_price_ix: bool,
     ) -> u64 {
+        let bt = Backtrace::capture();
+        info!("calculate_fee lamports: {} tx_wide_compute_cap: {} support_set_: {}   bt: {}", lamports_per_signature, tx_wide_compute_cap, support_set_compute_unit_price_ix, bt);
+
         if tx_wide_compute_cap {
             // Fee based on compute units and signatures
             const BASE_CONGESTION: f64 = 5_000.0;
