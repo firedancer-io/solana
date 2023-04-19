@@ -3083,6 +3083,13 @@ impl Bank {
         } else {
             info!("serialized_bank_hash slot: {}, len: {}  hash: {}",self.slot(), buf_stream.get_ref().len(), hash);
         }
+
+// import binascii
+// import sys
+// 
+// foo = open(sys.argv[1], "wb")
+// foo.write((binascii.unhexlify(sys.argv[2])))
+
     }
 
     // Should not be called outside of startup, will race with
