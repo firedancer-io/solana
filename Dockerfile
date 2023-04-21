@@ -14,5 +14,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rust.sh
 RUN chmod a+x rust.sh && ./rust.sh -y
 
 RUN cd /solana; . ~/.cargo/env && ./cargo nightly -Z unstable-options build
+RUN echo "hi mom2"; cd /solana; . ~/.cargo/env && ./cargo nightly -Z unstable-options build
 
 # Fairview ave, 4:29am -> 5:12am  ..
