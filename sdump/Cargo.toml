@@ -8,7 +8,7 @@ hex = "0.3.2"
 bincode = "1.3.3"
 serde = { version = "1.0.139", features = ["derive"] }
 serde_json = "1.0.91"
-solana-runtime = { path = "/solana/runtime" }
-solana-ledger = { path = "/solana/ledger" }
-solana-sdk = { path = "/solana/sdk" }
+solana-runtime = { path = "../runtime" }
+solana-ledger = { path = "../ledger" }
+solana-sdk = { path = "../sdk" }
 
