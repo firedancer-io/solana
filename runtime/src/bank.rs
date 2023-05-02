@@ -840,6 +840,9 @@ pub struct NoncePartial {
 }
 impl NoncePartial {
     pub fn new(address: Pubkey, account: AccountSharedData) -> Self {
+        let bt = Backtrace::capture();
+        info!("NoncePartial::new  bt: {}", bt);
+
         Self { address, account }
     }
 }
@@ -871,6 +874,9 @@ impl NonceFull {
         account: AccountSharedData,
         fee_payer_account: Option<AccountSharedData>,
     ) -> Self {
+        let bt = Backtrace::capture();
+        info!("NonceFull::new  bt: {}", bt);
+
         Self {
             address,
             account,
@@ -883,6 +889,9 @@ impl NonceFull {
         accounts: &[TransactionAccount],
         rent_debits: &RentDebits,
     ) -> Result<Self> {
+        let bt = Backtrace::capture();
+        info!("NonceFull::from_partial  bt: {}", bt);
+
         let fee_payer = (0..message.account_keys().len()).find_map(|i| {
             if let Some((k, a)) = &accounts.get(i) {
                 if message.is_non_loader_key(i) {
@@ -4477,7 +4486,7 @@ impl Bank {
         support_set_compute_unit_price_ix: bool,
     ) -> u64 {
         let bt = Backtrace::capture();
-        info!("calculate_fee lamports: {} tx_wide_compute_cap: {} support_set_: {}   bt: {}", lamports_per_signature, tx_wide_compute_cap, support_set_compute_unit_price_ix, bt);
+        info!("calculate_fee bt: {}", bt);
 
         if tx_wide_compute_cap {
             // Fee based on compute units and signatures
@@ -4516,12 +4525,19 @@ impl Bank {
                         .unwrap_or_default()
                 });
 
-            ((prioritization_fee
+
+            let ret = ((prioritization_fee
                 .saturating_add(signature_fee)
                 .saturating_add(write_lock_fee)
                 .saturating_add(compute_fee) as f64)
                 * congestion_multiplier)
-                .round() as u64
+                .round() as u64;
+
+            info!("lamports_per_signature: {} tx_wide_compute_cap: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
+                  lamports_per_signature, tx_wide_compute_cap, support_set_compute_unit_price_ix,
+                prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
+
+            ret
         } else {
             // Fee based only on signatures
             lamports_per_signature.saturating_mul(Self::get_num_signatures_in_message(message))

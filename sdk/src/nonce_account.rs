@@ -11,7 +11,13 @@ use {
     std::cell::RefCell,
 };
 
+use std::backtrace::Backtrace;
+use log::info;
+
 pub fn create_account(lamports: u64, separate_domains: bool) -> RefCell<AccountSharedData> {
+    let bt = Backtrace::capture();
+    info!("nonce_account::create_account lamports: {}  bt: {}", lamports, bt);
+    
     RefCell::new(
         AccountSharedData::new_data_with_space(
             lamports,

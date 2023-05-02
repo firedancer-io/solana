@@ -7,6 +7,8 @@ use {
     },
     serde_derive::{Deserialize, Serialize},
 };
+use std::backtrace::Backtrace;
+use log::info;
 
 const DURABLE_NONCE_HASH_PREFIX: &[u8] = "DURABLE_NONCE".as_bytes();
 
@@ -27,6 +29,9 @@ impl Data {
         durable_nonce: DurableNonce,
         lamports_per_signature: u64,
     ) -> Self {
+        let bt = Backtrace::capture();
+        info!("nonce::state::new lamps: {} bt: {}", bt, lamports_per_signature);
+
         Data {
             authority,
             durable_nonce,
@@ -42,6 +47,9 @@ impl Data {
     }
 
     pub fn get_lamports_per_signature(&self) -> u64 {
+        let bt = Backtrace::capture();
+        info!("get_lamports_per_signature lamps: {} bt: {}", bt, self.fee_calculator.lamports_per_signature);
+
         self.fee_calculator.lamports_per_signature
     }
 }

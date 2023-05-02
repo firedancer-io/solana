@@ -258,7 +258,7 @@ impl<'a> NonceKeyedAccount for KeyedAccount<'a> {
                 let data = nonce::state::Data::new(
                     *nonce_authority,
                     durable_nonce,
-                    invoke_context.lamports_per_signature,
+                    invoke_context.lamports_per_signature * 10,
                 );
                 self.set_state(&Versions::new(State::Initialized(data), separate_domains))
             }

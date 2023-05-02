@@ -1,6 +1,7 @@
 
-podman build --no-cache -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
-podman run --mount=type=bind,target=/solana,source=`pwd` -t solana-builder2 bash -c 'cd /solana; . ~/.cargo/env && ./cargo nightly -Z unstable-options build'
+podman build -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
+#podman build --no-cache -t solana-builder2 -f Dockerfile -v `pwd`:/solana:rw  .
+#podman run --mount=type=bind,target=/solana,source=`pwd` -t solana-builder2 bash -c 'cd /solana; . ~/.cargo/env && ./cargo nightly -Z unstable-options build'
 
 # podman run --mount=type=bind,target=/solana,source=/home/jsiegel/repos/solana -t solana-builder2 bash -c 'cd /solana; . ~/.cargo/env && ./cargo build'
 

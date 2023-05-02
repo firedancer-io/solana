@@ -1,4 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash
+
+set -x
 
 # shellcheck source=ci/rust-version.sh
 here=$(dirname "$0")
