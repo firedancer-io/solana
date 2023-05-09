@@ -56,11 +56,17 @@ impl Data {
 
 impl DurableNonce {
     pub fn from_blockhash(blockhash: &Hash, separate_domains: bool) -> Self {
-        Self(if separate_domains {
-            hashv(&[DURABLE_NONCE_HASH_PREFIX, blockhash.as_ref()])
-        } else {
-            *blockhash
-        })
+        Self(
+            if separate_domains {
+                let  ret = hashv(&[DURABLE_NONCE_HASH_PREFIX, blockhash.as_ref()]);
+                info!("DurableNonce::from_blockhash = {} <= {} {}", ret, bs58::encode(DURABLE_NONCE_HASH_PREFIX).into_string(), bs58::encode(blockhash.as_ref()).into_string());
+                ret
+            } else {
+                let ret = *blockhash;
+//                info!("DurableNonce::from_blockhash = {} <= {}", ret, blockhash.as_ref());
+                ret
+            }
+        )
     }
 
     /// Hash value used as recent_blockhash field in Transactions.

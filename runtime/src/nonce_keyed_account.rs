@@ -18,6 +18,8 @@ use {
     std::collections::HashSet,
 };
 
+use log::info;
+
 pub trait NonceKeyedAccount {
     fn advance_nonce_account(
         &self,
@@ -255,6 +257,9 @@ impl<'a> NonceKeyedAccount for KeyedAccount<'a> {
                     return Err(InstructionError::InsufficientFunds);
                 }
                 let (durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
+
+                info!("initialize_nonce_account: {} {:?} {}", *nonce_authority, durable_nonce, invoke_context.lamports_per_signature * 10);
+
                 let data = nonce::state::Data::new(
                     *nonce_authority,
                     durable_nonce,
