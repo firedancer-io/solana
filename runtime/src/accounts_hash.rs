@@ -663,6 +663,12 @@ impl AccountsHash {
     pub fn accumulate_account_hashes(mut hashes: Vec<(Pubkey, Hash)>) -> Hash {
         Self::sort_hashes_by_pubkey(&mut hashes);
 
+        let mut idx = 0;
+        for (pubkey, hash) in hashes.iter().enumerate() {
+            info!("{} {} {:?}", idx, pubkey, hash);
+            idx = idx+1;
+        }
+
         Self::compute_merkle_root_loop(hashes, MERKLE_FANOUT, |i| i.1)
     }
 

@@ -28,6 +28,9 @@ solana-metrics = { path = "../metrics", version = "=1.14.22" }
 solana-sdk = { path = "../sdk", version = "=1.14.22" }
 thiserror = "1.0"
 enum-iterator = "0.8.1"
+serde_with = "*"
+serde_json = "*"
+hex-serde = "*"
 
 [dev-dependencies]
 solana-logger = { path = "../logger", version = "=1.14.22" }

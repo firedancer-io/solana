@@ -189,6 +189,8 @@ impl EpochSchedule {
 
 #[cfg(test)]
 mod tests {
+    use num_traits::PrimInt;
+
     use super::*;
 
     #[test]

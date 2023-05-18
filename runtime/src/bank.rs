@@ -169,6 +169,10 @@ use {
     },
 };
 
+use crate::serde_snapshot::newer::SerializableVersionedBank;
+use std::backtrace::Backtrace;
+use log::info;
+
 /// params to `verify_bank_hash`
 pub struct VerifyBankHash {
     pub test_hash_calculation: bool,
@@ -603,6 +607,9 @@ pub struct NoncePartial {
 }
 impl NoncePartial {
     pub fn new(address: Pubkey, account: AccountSharedData) -> Self {
+        let bt = Backtrace::capture();
+        info!("NoncePartial::new  bt: {}", bt);
+
         Self { address, account }
     }
 }
@@ -634,6 +641,9 @@ impl NonceFull {
         account: AccountSharedData,
         fee_payer_account: Option<AccountSharedData>,
     ) -> Self {
+        let bt = Backtrace::capture();
+        info!("NonceFull::new  bt: {}", bt);
+
         Self {
             address,
             account,
@@ -646,6 +656,9 @@ impl NonceFull {
         accounts: &[TransactionAccount],
         rent_debits: &RentDebits,
     ) -> Result<Self> {
+        let bt = Backtrace::capture();
+        info!("NonceFull::from_partial  bt: {}", bt);
+
         let fee_payer = (0..message.account_keys().len()).find_map(|i| {
             if let Some((k, a)) = &accounts.get(i) {
                 if message.is_non_loader_key(i) {
@@ -1434,6 +1447,9 @@ impl Bank {
         reward_calc_tracer: Option<impl Fn(&RewardCalculationEvent) + Send + Sync>,
         new_bank_options: NewBankOptions,
     ) -> Self {
+        let bt = Backtrace::capture();
+        info!("_new_from_parent collector_id: {} slot: {} bt: {}", collector_id, slot, bt);
+
         let mut time = Measure::start("bank::new_from_parent");
         let NewBankOptions { vote_only_bank } = new_bank_options;
 
@@ -3089,7 +3105,6 @@ impl Bank {
         );
         stake_weighted_timestamp
     }
-
     // Distribute collected transaction fees for this slot to collector_id (= current leader).
     //
     // Each validator is incentivized to process more transactions to earn more transaction fees.
@@ -3163,6 +3178,7 @@ impl Bank {
         // BankingStage doesn't release this hash lock until both
         // record and commit are finished, those transactions will be
         // committed before this write lock can be obtained here.
+        {
         let mut hash = self.hash.write().unwrap();
         if *hash == Hash::default() {
             // finish up any deferred changes to account state
@@ -3176,6 +3192,21 @@ impl Bank {
             self.freeze_started.store(true, Relaxed);
             *hash = self.hash_internal_state();
             self.rc.accounts.accounts_db.mark_slot_frozen(self.slot());
+        }
+        } // Unlock the hash
+
+        let mut buf_stream = std::io::Cursor::new(Vec::new());
+        let ancestors = HashMap::from(&self.ancestors);
+        let bank_fields = self.get_fields_to_serialize(&ancestors);
+        let svb = SerializableVersionedBank::from(bank_fields);
+        bincode::serialize_into(&mut buf_stream, &svb).unwrap();
+
+        let hash = hashv(&[buf_stream.get_ref()]);
+
+        if buf_stream.get_ref().len() < 20000 {
+            info!("serialized_bank_hash slot: {}, len: {}  hash: {}  data: {}",self.slot(), buf_stream.get_ref().len(), hash, hex::encode(buf_stream.get_ref()));
+        } else {
+            info!("serialized_bank_hash slot: {}, len: {}  hash: {}",self.slot(), buf_stream.get_ref().len(), hash);
         }
     }
 
@@ -3466,7 +3497,12 @@ impl Bank {
                     NoncePartial::new(address, account).lamports_per_signature()
                 })
         })?;
-        Some(Self::calculate_fee(
+
+        info!("get_fee_for_message->calculate_fee called in slot {}", self.slot());
+
+        Some(Self::wrapped_calculate_fee(
+            self.slot(),
+            String::from("get_fee_for_message"),
             message,
             lamports_per_signature,
             &self.fee_structure,
@@ -3510,7 +3546,11 @@ impl Bank {
         message: &SanitizedMessage,
         lamports_per_signature: u64,
     ) -> u64 {
-        Self::calculate_fee(
+        info!("get_fee_for_message_with_lamports_per_signature->calculate_fee called in slot {}", self.slot());
+
+        Self::wrapped_calculate_fee(
+            self.slot(),
+            String::from("get_fee_for_message_with_lamports_per_signature"),
             message,
             lamports_per_signature,
             &self.fee_structure,
@@ -4693,12 +4733,86 @@ impl Bank {
                     .unwrap_or_default()
             });
 
-        ((prioritization_fee
+        let ret = ((prioritization_fee
             .saturating_add(signature_fee)
             .saturating_add(write_lock_fee)
             .saturating_add(compute_fee) as f64)
             * congestion_multiplier)
-            .round() as u64
+            .round() as u64;
+
+        info!("calculate_fee: lamports_per_signature: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
+              lamports_per_signature, support_set_compute_unit_price_ix,
+              prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
+
+        let bt = Backtrace::capture();
+        info!("calculate_fee bt: {}", bt);
+        ret
+    }
+    /// Calculate fee for `SanitizedMessage`
+    pub fn wrapped_calculate_fee(
+        slot: Slot,
+        invoked_func: String,
+        message: &SanitizedMessage,
+        lamports_per_signature: u64,
+        fee_structure: &FeeStructure,
+        support_set_compute_unit_price_ix: bool,
+        use_default_units_per_instruction: bool,
+        enable_request_heap_frame_ix: bool,
+    ) -> u64 {
+        // Fee based on compute units and signatures
+        const BASE_CONGESTION: f64 = 5_000.0;
+        let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
+        let congestion_multiplier = if lamports_per_signature == 0 {
+            0.0 // test only
+        } else {
+            BASE_CONGESTION / current_congestion
+        };
+
+        let mut compute_budget = ComputeBudget::default();
+        let prioritization_fee_details = compute_budget
+            .process_instructions(
+                message.program_instructions_iter(),
+                use_default_units_per_instruction,
+                support_set_compute_unit_price_ix,
+                enable_request_heap_frame_ix,
+            )
+            .unwrap_or_default();
+        let prioritization_fee = prioritization_fee_details.get_fee();
+        let signature_fee = Self::get_num_signatures_in_message(message)
+            .saturating_mul(fee_structure.lamports_per_signature);
+        let write_lock_fee = Self::get_num_write_locks_in_message(message)
+            .saturating_mul(fee_structure.lamports_per_write_lock);
+        let compute_fee = fee_structure
+            .compute_fee_bins
+            .iter()
+            .find(|bin| compute_budget.compute_unit_limit <= bin.limit)
+            .map(|bin| bin.fee)
+            .unwrap_or_else(|| {
+                fee_structure
+                    .compute_fee_bins
+                    .last()
+                    .map(|bin| bin.fee)
+                    .unwrap_or_default()
+            });
+
+        let ret = ((prioritization_fee
+            .saturating_add(signature_fee)
+            .saturating_add(write_lock_fee)
+            .saturating_add(compute_fee) as f64)
+            * congestion_multiplier)
+            .round() as u64;
+
+        info!("calculate_fee_compare: slot({}) invoked from({}) fee({}) lamports_per_signature({}) support_set_({}) prioritization_fee({}) signature_fee({}) write_lock_fee({}) compute_fee({}) congestion_multiplier({})",
+                slot, invoked_func, ret, lamports_per_signature, support_set_compute_unit_price_ix as u64,
+              prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier);
+
+        info!("calculate_fee: lamports_per_signature: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
+              lamports_per_signature, support_set_compute_unit_price_ix,
+              prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
+
+        let bt = Backtrace::capture();
+        info!("calculate_fee bt: {}", bt);
+        ret
     }
 
     fn filter_program_errors_and_collect_fee(
@@ -4732,7 +4846,11 @@ impl Bank {
 
                 let lamports_per_signature =
                     lamports_per_signature.ok_or(TransactionError::BlockhashNotFound)?;
-                let fee = Self::calculate_fee(
+                info!("filter_program_errors_and_collect_fee->calculate_fee called in slot {}", self.slot());
+
+                let fee = Self::wrapped_calculate_fee(
+                    self.slot(),
+                    String::from("filter_program_errors_and_collect_fee"),
                     tx.message(),
                     lamports_per_signature,
                     &self.fee_structure,
@@ -5128,8 +5246,10 @@ impl Bank {
 
     fn collect_rent_eagerly(&self, just_rewrites: bool) {
         if self.lazy_rent_collection.load(Relaxed) {
+            info!("lazy rent collection enabled");
             return;
         }
+        info!("collect_rent_eagerly");
 
         let mut measure = Measure::start("collect_rent_eagerly-ms");
         let partitions = self.rent_collection_partitions();
@@ -6320,6 +6440,8 @@ impl Bank {
         pubkey: &Pubkey,
         lamports: u64,
     ) -> std::result::Result<u64, LamportsError> {
+        info!("banks::deposit into {} for {}", pubkey, lamports);
+
         // This doesn't collect rents intentionally.
         // Rents should only be applied to actual TXes
         let mut account = self.get_account_with_fixed_root(pubkey).unwrap_or_default();
@@ -6638,9 +6760,10 @@ impl Bank {
         }
 
         info!(
-            "bank frozen: {} hash: {} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}",
+            "bank frozen: {} hash: {} parent_hash: {} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}",
             self.slot(),
             hash,
+            self.parent_hash,
             accounts_delta_hash.hash,
             self.signature_count(),
             self.last_blockhash(),

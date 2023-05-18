@@ -48,7 +48,7 @@ use {
     storage::{SerializableStorage, SerializedAppendVecId},
 };
 
-mod newer;
+pub mod newer;
 mod storage;
 mod tests;
 mod utils;
