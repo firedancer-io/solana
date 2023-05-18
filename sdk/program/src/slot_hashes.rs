@@ -16,6 +16,9 @@ use {
     },
 };
 
+use std::backtrace::Backtrace;
+use log::info;
+
 pub const MAX_ENTRIES: usize = 512; // about 2.5 minutes to get your vote in
 
 // This is to allow tests with custom slot hash expiry to avoid having to generate
@@ -38,6 +41,9 @@ pub struct SlotHashes(Vec<SlotHash>);
 
 impl SlotHashes {
     pub fn add(&mut self, slot: Slot, hash: Hash) {
+        let bt = Backtrace::capture();
+        info!("SlotHashes::add() slot: {} hash: {} bt: {:?}", slot, hash, bt);
+
         match self.binary_search_by(|(probe, _)| slot.cmp(probe)) {
             Ok(index) => (self.0)[index] = (slot, hash),
             Err(index) => (self.0).insert(index, (slot, hash)),

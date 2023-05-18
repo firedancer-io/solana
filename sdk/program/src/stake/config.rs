@@ -2,6 +2,9 @@
 //!  carries variables that the stake program cares about
 use serde_derive::{Deserialize, Serialize};
 
+use std::backtrace::Backtrace;
+use log::info;
+
 // stake config ID
 crate::declare_id!("StakeConfig11111111111111111111111111111111");
 
@@ -20,6 +23,9 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let bt = Backtrace::capture();
+        info!("stake::config::default() {:?}", bt);
+
         Self {
             warmup_cooldown_rate: DEFAULT_WARMUP_COOLDOWN_RATE,
             slash_penalty: DEFAULT_SLASH_PENALTY,

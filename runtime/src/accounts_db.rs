@@ -5486,9 +5486,15 @@ impl AccountsDb {
         hasher.update(owner.as_ref());
         hasher.update(pubkey.as_ref());
 
-        Hash::new_from_array(
+        let ret = Hash::new_from_array(
             <[u8; solana_sdk::hash::HASH_BYTES]>::try_from(hasher.finalize().as_slice()).unwrap(),
         )
+
+        info!(
+            "hash_account_data: pubkey: {} slot: {} lamports: {}  owner: {}  executable: {},  rent_epoch: {}, data_len: {}, data: {:?} = {}",
+             pubkey, slot, lamports, owner, executable, rent_epoch, data.len(), data, ret);
+
+        ret
     }
 
     fn bulk_assign_write_version(&self, count: usize) -> StoredMetaWriteVersion {
@@ -7238,7 +7244,14 @@ impl AccountsDb {
 
         self.extend_hashes_with_skipped_rewrites(&mut hashes, skipped_rewrites);
 
+        let hashlen = hashes.len();
+
         let ret = AccountsHash::accumulate_account_hashes(hashes);
+
+        info!(
+            "get_accounts_delta_hash: {} hash: {} hashes.len: {}",
+            slot, ret, hashlen);
+
         accumulate.stop();
         let mut uncleaned_time = Measure::start("uncleaned_index");
         self.uncleaned_pubkeys.insert(slot, dirty_keys);
