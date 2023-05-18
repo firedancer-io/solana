@@ -4737,8 +4737,8 @@ impl Bank {
             * congestion_multiplier)
             .round() as u64;
 
-        info!("calculate_fee: lamports_per_signature: {} tx_wide_compute_cap: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
-              lamports_per_signature, tx_wide_compute_cap, support_set_compute_unit_price_ix,
+        info!("calculate_fee: lamports_per_signature: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
+              lamports_per_signature, support_set_compute_unit_price_ix,
               prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
 
         let bt = Backtrace::capture();

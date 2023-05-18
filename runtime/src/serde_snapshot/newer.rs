@@ -222,7 +222,7 @@ impl<'a> TypeContext<'a> for Context {
         //info!("serialize_bank_and_storage bt: {}  val: {}", bt, serde_yaml::to_string(&manifest).unwrap());
         info!("serialize_bank_and_storage bt: {}", bt);
 
-        manifest.serialize(serializer);
+        manifest.serialize(serializer)
     }
 
     #[cfg(test)]
