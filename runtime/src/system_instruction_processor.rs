@@ -378,7 +378,7 @@ pub fn process_instruction(
             me.withdraw_nonce_account(lamports, to, &rent, &signers, invoke_context)
         }
         SystemInstruction::InitializeNonceAccount(authorized) => {
-            info!("InitializeNonceAccount");
+            info!("InitializeNonceAccount: {}", authorized);
             
             let me = &mut keyed_account_at_index(keyed_accounts, first_instruction_account)?;
             #[allow(deprecated)]

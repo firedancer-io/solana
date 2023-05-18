@@ -103,6 +103,8 @@ impl<'a> NonceKeyedAccount for KeyedAccount<'a> {
                     ));
                 }
 
+                info!("advance_non_account: lamports_per_signature {}", invoke_context.lamports_per_signature );
+
                 let new_data = nonce::state::Data::new(
                     data.authority,
                     next_durable_nonce,
@@ -258,12 +260,12 @@ impl<'a> NonceKeyedAccount for KeyedAccount<'a> {
                 }
                 let (durable_nonce, separate_domains) = get_durable_nonce(invoke_context);
 
-                info!("initialize_nonce_account: {} {:?} {}", *nonce_authority, durable_nonce, invoke_context.lamports_per_signature * 10);
+                info!("initialize_nonce_account: {} {:?} {}", *nonce_authority, durable_nonce, invoke_context.lamports_per_signature);
 
                 let data = nonce::state::Data::new(
                     *nonce_authority,
                     durable_nonce,
-                    invoke_context.lamports_per_signature * 10,
+                    invoke_context.lamports_per_signature,
                 );
                 self.set_state(&Versions::new(State::Initialized(data), separate_domains))
             }

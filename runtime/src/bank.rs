@@ -3410,6 +3410,9 @@ impl Bank {
                     NoncePartial::new(address, account).lamports_per_signature()
                 })
         })?;
+
+        info!("get_fee_for_message->calculate_fee called in slot {}", self.slot());
+
         Some(Self::calculate_fee(
             message,
             lamports_per_signature,
@@ -3425,6 +3428,8 @@ impl Bank {
         message: &SanitizedMessage,
         lamports_per_signature: u64,
     ) -> u64 {
+        info!("get_fee_for_message_with_lamports_per_signature->calculate_fee called in slot {}", self.slot());
+
         Self::calculate_fee(
             message,
             lamports_per_signature,
@@ -4485,9 +4490,6 @@ impl Bank {
         tx_wide_compute_cap: bool,
         support_set_compute_unit_price_ix: bool,
     ) -> u64 {
-        let bt = Backtrace::capture();
-        info!("calculate_fee bt: {}", bt);
-
         if tx_wide_compute_cap {
             // Fee based on compute units and signatures
             const BASE_CONGESTION: f64 = 5_000.0;
@@ -4533,9 +4535,12 @@ impl Bank {
                 * congestion_multiplier)
                 .round() as u64;
 
-            info!("lamports_per_signature: {} tx_wide_compute_cap: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
+            info!("calculate_fee: lamports_per_signature: {} tx_wide_compute_cap: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
                   lamports_per_signature, tx_wide_compute_cap, support_set_compute_unit_price_ix,
                 prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
+
+            let bt = Backtrace::capture();
+            info!("calculate_fee bt: {}", bt);
 
             ret
         } else {
@@ -4575,6 +4580,9 @@ impl Bank {
 
                 let lamports_per_signature =
                     lamports_per_signature.ok_or(TransactionError::BlockhashNotFound)?;
+
+                info!("filter_program_errors_and_collect_fee->calculate_fee called in slot {}", self.slot());
+
                 let fee = Self::calculate_fee(
                     tx.message(),
                     lamports_per_signature,
