@@ -1344,6 +1344,37 @@ mod test {
     }
 
     #[test]
+    fn test_reference() {
+        const TEST: &[&[u8]] = &[
+            b"my", b"very", b"eager", b"mother", b"just", b"served", b"us", b"nine", b"pizzas",
+            b"make", b"prime",
+        ];
+        
+        let tree = make_merkle_tree( TEST.iter().map(|s| hashv(&[MERKLE_HASH_PREFIX_LEAF, s] )).collect() );
+        
+        for j in 0..TEST.len() {
+            let branch = make_merkle_branch(j, TEST.len(), tree.as_slice());
+            if let Some(x) = branch {
+                // print!("Index {}: ", j);
+                if j==0 {
+                    print!("Root {{ ");
+                    for b in x.root { print!("{:#04x}, ", b);}
+                    println!("}}");
+                }
+
+                println!("{{");
+                for pfelem in x.proof {
+                    print!("   {{ ");
+                    for b in pfelem { print!("{:#04x}, ", b);}
+                    println!("}},");
+                }
+                println!("}},");
+            }
+        }
+        
+    }
+
+    #[test]
     fn test_make_shreds_from_data_rand() {
         let mut rng = rand::thread_rng();
         let reed_solomon_cache = ReedSolomonCache::default();

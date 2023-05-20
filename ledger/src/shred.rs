@@ -867,6 +867,9 @@ pub(crate) fn make_merkle_shreds_from_entries(
 ) -> Result<Vec<Shred>, Error> {
     let now = Instant::now();
     let entries = bincode::serialize(entries)?;
+    let mut file = std::fs::File::create("/tmp/entry.bin")?;
+    std::io::Write::write_all(&mut file, &entries)?;
+    // println!("Entry: {}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &entries));
     stats.serialize_elapsed += now.elapsed().as_micros() as u64;
     let shreds = merkle::make_shreds_from_data(
         thread_pool,

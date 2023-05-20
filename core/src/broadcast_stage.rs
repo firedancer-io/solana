@@ -634,6 +634,7 @@ pub mod test {
         {
             // Create the leader scheduler
             let leader_keypair = Keypair::new();
+            println!("Leader private key: {}", leader_keypair.to_base58_string());
 
             let (entry_sender, entry_receiver) = unbounded();
             let (retransmit_slots_sender, retransmit_slots_receiver) = unbounded();
@@ -669,7 +670,7 @@ pub mod test {
             );
 
             let mut entries = vec![];
-            for _ in 0..10 {
+            while true {
                 entries = broadcast_service
                     .blockstore
                     .get_slot_entries(slot, 0)
