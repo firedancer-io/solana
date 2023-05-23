@@ -2988,7 +2988,6 @@ impl Bank {
         );
         stake_weighted_timestamp
     }
-
     // Distribute collected transaction fees for this slot to collector_id (= current leader).
     //
     // Each validator is incentivized to process more transactions to earn more transaction fees.
@@ -4930,8 +4929,10 @@ impl Bank {
 
     fn collect_rent_eagerly(&self) {
         if self.lazy_rent_collection.load(Relaxed) {
+            info!("lazy rent collection enabled");
             return;
         }
+        info!("collect_rent_eagerly");
 
         let mut measure = Measure::start("collect_rent_eagerly-ms");
         let partitions = self.rent_collection_partitions();
