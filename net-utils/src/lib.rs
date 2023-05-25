@@ -16,6 +16,8 @@ use {
 };
 
 mod ip_echo_server;
+use std::net::Ipv4Addr;
+
 pub use ip_echo_server::{ip_echo_server, IpEchoServer, MAX_PORT_COUNT_PER_MESSAGE};
 use ip_echo_server::{IpEchoServerMessage, IpEchoServerResponse};
 
@@ -456,6 +458,51 @@ pub fn bind_with_any_port(ip_addr: IpAddr) -> io::Result<UdpSocket> {
             format!("No available UDP port: {}", err),
         )),
     }
+}
+
+pub fn bind_multicast(
+    ip_addr: IpAddr,
+    range: PortRange,
+    mut num: usize,
+) -> io::Result<(u16, Vec<UdpSocket>)> {
+    if  num != 1 {
+        warn!(
+            "bind_multicast() only supports 1 socket ({} requested)",
+            num
+        );
+        num = 1;
+    }
+    let mut sockets = Vec::with_capacity(num);
+
+    const NUM_TRIES: usize = 100;
+    let mut port = 0;
+    let mut error = None;
+    for _ in 0..NUM_TRIES {
+        port = {
+            let (port, _) = bind_in_range(ip_addr, range)?;
+            port
+        }; // drop the probe, port should be available... briefly.
+
+        for _ in 0..num {
+            let sock = bind_to(ip_addr, port, true);
+            if let Ok(sock) = sock {
+                sock.join_multicast_v4(&Ipv4Addr::new(224, 3, 26, 26), &Ipv4Addr::new(0, 0, 0, 0))?;
+                sockets.push(sock);
+            } else {
+                error = Some(sock);
+                break;
+            }
+        }
+        if sockets.len() == num {
+            break;
+        } else {
+            sockets.clear();
+        }
+    }
+    if sockets.len() != num {
+        error.unwrap()?;
+    }
+    Ok((port, sockets))
 }
 
 // binds many sockets to the same port in a range

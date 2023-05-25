@@ -13,6 +13,7 @@
 //!
 //! Bank needs to provide an interface for us to query the stake weight
 
+use solana_net_utils::bind_multicast;
 #[deprecated(
     since = "1.10.6",
     note = "Please use `solana_net_utils::{MINIMUM_VALIDATOR_PORT_RANGE_WIDTH, VALIDATOR_PORT_RANGE}` instead"
@@ -2970,7 +2971,7 @@ impl Node {
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
 
         let (tvu_port, tvu_sockets) =
-            multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu multi_bind");
+            bind_multicast(bind_ip_addr, (16016, 16017), 1).expect("tvu multicast bind");
 
         let (tvu_forwards_port, tvu_forwards_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu_forwards multi_bind");
@@ -3046,6 +3047,8 @@ impl Node {
         }
     }
 }
+
+
 
 pub fn push_messages_to_peer(
     messages: Vec<CrdsValue>,

@@ -15,10 +15,11 @@ use {
         borrow::Borrow,
         io,
         iter::repeat,
-        net::{SocketAddr, UdpSocket},
+        net::{SocketAddr, UdpSocket, IpAddr, Ipv4Addr},
     },
     thiserror::Error,
 };
+
 
 #[derive(Debug, Error)]
 pub enum SendPktsError {
@@ -153,8 +154,11 @@ where
     S: Borrow<SocketAddr>,
     T: AsRef<[u8]>,
 {
-    let dests = dests.iter().map(Borrow::borrow);
-    let pkts: Vec<_> = repeat(&packet).zip(dests).collect();
+    //let dests = dests.iter().map(Borrow::borrow);
+    //let pkts: Vec<_> = repeat(&packet).zip(dests).collect();
+    let addr: &SocketAddr = dests.first().unwrap().borrow();
+    let port = addr.port();
+    let pkts = [ (packet, SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 3, 26, 26)), port) ) ];
     batch_send(sock, &pkts)
 }
 
