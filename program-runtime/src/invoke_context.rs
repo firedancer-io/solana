@@ -34,6 +34,11 @@ use {
     std::{borrow::Cow, cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc, sync::Arc},
 };
 
+// use itertools::Itertools;
+use serde::Serialize;
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
+
 pub type ProcessInstructionWithContext =
     fn(usize, &[u8], &mut InvokeContext) -> Result<(), InstructionError>;
 
@@ -1153,6 +1158,35 @@ pub fn with_mock_invoke_context<R, F: FnMut(&mut InvokeContext) -> R>(
     callback(&mut invoke_context)
 }
 
+#[serde_as]
+#[derive(Serialize)]
+struct TestTransactionAccount {
+    #[serde_as(as = "DisplayFromStr")]
+    pubkey: Pubkey,
+    shared_data: AccountSharedData,
+}
+
+#[serde_as]
+#[derive(Serialize)]
+struct TestInstructionAccount {
+    #[serde_as(as = "DisplayFromStr")]
+    pub pubkey: Pubkey,
+    pub is_signer: bool,
+    pub is_writable: bool, 
+}
+
+#[serde_as]
+#[derive(Serialize)]
+struct TestCase {
+    name: String,
+    #[serde_as(as = "DisplayFromStr")]
+    program_id: Pubkey,
+    instruction_data: Vec<u8>,
+    transaction_accounts: Vec<TestTransactionAccount>,
+    instruction_accounts: Vec<TestInstructionAccount>,
+    expected_result: Result<(), InstructionError>,
+}
+
 pub fn mock_process_instruction(
     loader_id: &Pubkey,
     mut program_indices: Vec<usize>,
@@ -1162,6 +1196,19 @@ pub fn mock_process_instruction(
     expected_result: Result<(), InstructionError>,
     process_instruction: ProcessInstructionWithContext,
 ) -> Vec<AccountSharedData> {
+    println!("test_case_json {}", serde_json::to_string(&TestCase {
+        name: std::thread::current().name().unwrap().to_string(),
+        program_id: loader_id.clone(),
+        instruction_data: Vec::from(instruction_data),
+        transaction_accounts: transaction_accounts.clone().into_iter().map(|(pubkey, shared_data)| {
+            TestTransactionAccount { pubkey, shared_data }
+        }).collect(),
+        instruction_accounts: instruction_accounts.clone().into_iter().map(|acc_meta| {
+            TestInstructionAccount { pubkey: acc_meta.pubkey, is_signer: acc_meta.is_signer, is_writable: acc_meta.is_writable }
+        }).collect(),
+        expected_result: expected_result.clone(),
+    }).unwrap());
+
     program_indices.insert(0, transaction_accounts.len());
     let mut preparation =
         prepare_mock_invoke_context(transaction_accounts, instruction_accounts, &program_indices);
