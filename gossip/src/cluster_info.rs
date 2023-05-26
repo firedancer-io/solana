@@ -2972,6 +2972,7 @@ impl Node {
 
         let (tvu_port, tvu_sockets) =
             bind_multicast(bind_ip_addr, (16016, 16017), 1).expect("tvu multicast bind");
+        info!("TVU Multicast bound to port {} on IP {}", tvu_port, bind_ip_addr);
 
         let (tvu_forwards_port, tvu_forwards_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu_forwards multi_bind");

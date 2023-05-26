@@ -1,5 +1,7 @@
 //! A stage to broadcast data from a leader node to validators
 #![allow(clippy::rc_buffer)]
+
+use solana_streamer::sendmmsg::multi_target_send;
 use {
     self::{
         broadcast_duplicates_run::{BroadcastDuplicatesConfig, BroadcastDuplicatesRun},
@@ -422,10 +424,14 @@ pub fn broadcast_shreds(
     transmit_stats.shred_select += shred_select.as_us();
 
     let mut send_mmsg_time = Measure::start("send_mmsg");
-    if let Err(SendPktsError::IoError(ioerr, num_failed)) = batch_send(s, &packets[..]) {
-        transmit_stats.dropped_packets += num_failed;
-        result = Err(Error::Io(ioerr));
+    info!("Sending turbine with multicast");
+    for (pkt, dst) in &packets {
+        if let Err(SendPktsError::IoError(ioerr, num_failed)) = multi_target_send(s, pkt, &[dst]) {
+            transmit_stats.dropped_packets += num_failed;
+            result = Err(Error::Io(ioerr));
+        }
     }
+
     send_mmsg_time.stop();
     transmit_stats.send_mmsg_elapsed += send_mmsg_time.as_us();
     transmit_stats.total_packets += packets.len();

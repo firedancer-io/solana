@@ -156,9 +156,13 @@ where
 {
     //let dests = dests.iter().map(Borrow::borrow);
     //let pkts: Vec<_> = repeat(&packet).zip(dests).collect();
-    let addr: &SocketAddr = dests.first().unwrap().borrow();
+    let addr = match dests.first()  {
+        Some(addr) => addr.borrow(),
+        None => return Ok(()),
+    };
     let port = addr.port();
-    let pkts = [ (packet, SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 3, 26, 26)), port) ) ];
+    info!("Sending multicast packet to port {}", port);
+    let pkts = [ (packet, SocketAddr::new(IpAddr::V4(Ipv4Addr::new(239, 0, 123, 45)), port) ) ];
     batch_send(sock, &pkts)
 }
 

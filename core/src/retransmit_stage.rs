@@ -35,10 +35,12 @@ use {
             atomic::{AtomicU64, AtomicUsize, Ordering},
             Arc, RwLock,
         },
+        net::Ipv4Addr,
         thread::{self, Builder, JoinHandle},
         time::{Duration, Instant},
     },
 };
+
 
 const MAX_DUPLICATE_COUNT: usize = 2;
 const DEDUPER_FALSE_POSITIVE_RATE: f64 = 0.001;
@@ -327,7 +329,7 @@ fn retransmit_shred(
         .fetch_add(compute_turbine_peers.as_us(), Ordering::Relaxed);
 
     let mut retransmit_time = Measure::start("retransmit_to");
-    let num_nodes = match multi_target_send(socket, shred, &addrs) {
+    /* let num_nodes = match multi_target_send(socket, shred, &addrs) {
         Ok(()) => addrs.len(),
         Err(SendPktsError::IoError(ioerr, num_failed)) => {
             stats
@@ -341,7 +343,8 @@ fn retransmit_shred(
             );
             addrs.len() - num_failed
         }
-    };
+    }; */
+    let num_nodes = addrs.len();
     retransmit_time.stop();
     stats.num_nodes.fetch_add(num_nodes, Ordering::Relaxed);
     stats
@@ -371,6 +374,10 @@ pub fn retransmitter(
         CLUSTER_NODES_CACHE_NUM_EPOCH_CAP,
         CLUSTER_NODES_CACHE_TTL,
     );
+    for s in sockets.iter() {
+        s.join_multicast_v4(&Ipv4Addr::new(239, 0, 123, 45), &Ipv4Addr::new(0, 0, 0, 0));
+    }
+
     let mut rng = rand::thread_rng();
     let mut shred_deduper = ShredDeduper::<2>::new(&mut rng, DEDUPER_NUM_BITS);
     let mut stats = RetransmitStats::new(Instant::now());
