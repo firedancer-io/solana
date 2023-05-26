@@ -10,7 +10,7 @@ PKG_CONFIG_PATH=/opt/rh/gcc-toolset-12/root/usr/lib64/pkgconfig:/usr/lib64/pkgco
 export PKG_CONFIG_PATH
 
 #./cargo nightly -Z unstable-options build
-./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests --nocapture
+# ./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests --nocapture
 
 # /home/jsiegel/repos/solana/target/debug/deps/solana_runtime-13b3b7db3fedc08a 'system_instruction_processor::tests' --nocapture
 
