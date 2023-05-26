@@ -486,7 +486,7 @@ pub fn bind_multicast(
         for _ in 0..num {
             let sock = bind_to(ip_addr, port, true);
             if let Ok(sock) = sock {
-                sock.join_multicast_v4(&Ipv4Addr::new(224, 3, 26, 26), &Ipv4Addr::new(0, 0, 0, 0))?;
+                sock.join_multicast_v4(&Ipv4Addr::new(239, 0, 123, 45), &Ipv4Addr::new(0, 0, 0, 0))?;
                 sockets.push(sock);
             } else {
                 error = Some(sock);
