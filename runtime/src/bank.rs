@@ -3412,7 +3412,9 @@ impl Bank {
 
         info!("get_fee_for_message->calculate_fee called in slot {}", self.slot());
 
-        Some(Self::calculate_fee(
+        Some(Self::wrapped_calculate_fee(
+            self.slot(),
+            String::from("get_fee_for_message"),
             message,
             lamports_per_signature,
             &self.fee_structure,
@@ -3429,7 +3431,9 @@ impl Bank {
     ) -> u64 {
         info!("get_fee_for_message_with_lamports_per_signature->calculate_fee called in slot {}", self.slot());
 
-        Self::calculate_fee(
+        Self::wrapped_calculate_fee(
+            self.slot(),
+            String::from("get_fee_for_message_with_lamports_per_signature"),
             message,
             lamports_per_signature,
             &self.fee_structure,
@@ -4548,6 +4552,76 @@ impl Bank {
         }
     }
 
+
+    pub fn wrapped_calculate_fee(
+        slot: Slot,
+        invoked_func: String,
+        message: &SanitizedMessage,
+        lamports_per_signature: u64,
+        fee_structure: &FeeStructure,
+        tx_wide_compute_cap: bool,
+        support_set_compute_unit_price_ix: bool,
+    ) -> u64 {
+
+        if tx_wide_compute_cap {
+            // Fee based on compute units and signatures
+            const BASE_CONGESTION: f64 = 5_000.0;
+            let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
+            let congestion_multiplier = if lamports_per_signature == 0 {
+                0.0 // test only
+            } else {
+                BASE_CONGESTION / current_congestion
+            };
+
+            let mut compute_budget = ComputeBudget::default();
+            let prioritization_fee_details = compute_budget
+                .process_instructions(
+                    message.program_instructions_iter(),
+                    false,
+                    false,
+                    support_set_compute_unit_price_ix,
+                )
+                .unwrap_or_default();
+            let prioritization_fee = prioritization_fee_details.get_fee();
+            let signature_fee = Self::get_num_signatures_in_message(message)
+                .saturating_mul(fee_structure.lamports_per_signature);
+            let write_lock_fee = Self::get_num_write_locks_in_message(message)
+                .saturating_mul(fee_structure.lamports_per_write_lock);
+            let compute_fee = fee_structure
+                .compute_fee_bins
+                .iter()
+                .find(|bin| compute_budget.compute_unit_limit <= bin.limit)
+                .map(|bin| bin.fee)
+                .unwrap_or_else(|| {
+                    fee_structure
+                        .compute_fee_bins
+                        .last()
+                        .map(|bin| bin.fee)
+                        .unwrap_or_default()
+                });
+
+
+            let ret = ((prioritization_fee
+                .saturating_add(signature_fee)
+                .saturating_add(write_lock_fee)
+                .saturating_add(compute_fee) as f64)
+                * congestion_multiplier)
+                .round() as u64;
+
+            info!("calculate_fee_compare: slot({}) invoked from({}) fee({}) lamports_per_signature({}) tx_wide_compute_cap({}) support_set_({}) prioritization_fee({}) signature_fee({}) write_lock_fee({}) compute_fee({}) congestion_multiplier({})",
+                slot, invoked_func, ret, lamports_per_signature, tx_wide_compute_cap as u64, support_set_compute_unit_price_ix as u64,
+              prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier);
+
+            let bt = Backtrace::capture();
+            info!("calculate_fee bt: {}", bt);
+
+            ret
+        } else {
+            // Fee based only on signatures
+            lamports_per_signature.saturating_mul(Self::get_num_signatures_in_message(message))
+        }
+    }
+
     fn filter_program_errors_and_collect_fee(
         &self,
         txs: &[SanitizedTransaction],
@@ -4582,7 +4656,9 @@ impl Bank {
 
                 info!("filter_program_errors_and_collect_fee->calculate_fee called in slot {}", self.slot());
 
-                let fee = Self::calculate_fee(
+                let fee = Self::wrapped_calculate_fee(
+                    self.slot(),
+                    String::from("filter_program_errors_and_collect_fee"),
                     tx.message(),
                     lamports_per_signature,
                     &self.fee_structure,
