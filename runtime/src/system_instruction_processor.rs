@@ -23,7 +23,6 @@ use {
     },
     std::collections::HashSet,
 };
-use serde_with::serde_as;
 
 // represents an address that may or may not have been generated
 //  from a seed
@@ -585,11 +584,6 @@ pub fn get_system_account_kind(account: &AccountSharedData) -> Option<SystemAcco
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
-    use serde::Serialize;
-    use solana_sdk::stake_history::Epoch;
-    use serde_with::serde_as;
-    use serde_with::DisplayFromStr;
     #[allow(deprecated)]
     use solana_sdk::{
         account::{self, Account, AccountSharedData, ReadableAccount},
@@ -632,35 +626,6 @@ mod tests {
         }
     }
 
-    #[serde_as]
-    #[derive(Serialize)]
-    struct TestTransactionAccount {
-        #[serde_as(as = "DisplayFromStr")]
-        pubkey: Pubkey,
-        shared_data: AccountSharedData,
-    }
-
-    #[serde_as]
-    #[derive(Serialize)]
-    struct TestInstructionAccount {
-        #[serde_as(as = "DisplayFromStr")]
-        pub pubkey: Pubkey,
-        pub is_signer: bool,
-        pub is_writable: bool, 
-    }
-
-    #[serde_as]
-    #[derive(Serialize)]
-    struct TestCase {
-        name: String,
-        #[serde_as(as = "DisplayFromStr")]
-        program_id: Pubkey,
-        instruction_data: Vec<u8>,
-        transaction_accounts: Vec<TestTransactionAccount>,
-        instruction_accounts: Vec<TestInstructionAccount>,
-        expected_result: Result<(), InstructionError>,
-    }
-    
     /* ./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests --nocapture */
     fn process_instruction(
         instruction_data: &[u8],
@@ -669,18 +634,6 @@ mod tests {
         expected_result: Result<(), InstructionError>,
         process_instruction: ProcessInstructionWithContext,
     ) -> Vec<AccountSharedData> {
-        println!("{}", serde_json::to_string(&TestCase {
-            name: std::thread::current().name().unwrap().to_string(),
-            program_id: system_program::id(),
-            instruction_data: Vec::from(instruction_data),
-            transaction_accounts: transaction_accounts.clone().into_iter().map(|(pubkey, shared_data)| {
-                TestTransactionAccount { pubkey, shared_data }
-            }).collect(),
-            instruction_accounts: instruction_accounts.clone().into_iter().map(|acc_meta| {
-                TestInstructionAccount { pubkey: acc_meta.pubkey, is_signer: acc_meta.is_signer, is_writable: acc_meta.is_writable }
-            }).collect(),
-            expected_result: expected_result.clone(),
-        }).unwrap());
         mock_process_instruction(
             &system_program::id(),
             Vec::new(),
