@@ -4472,6 +4472,10 @@ impl AccountsDb {
         let ret = Hash::new_from_array(<[u8; solana_sdk::hash::HASH_BYTES]>::try_from(hasher.finalize().as_slice()).unwrap(),);
 
         info!(
+            "hash_account_data_compare: pubkey: ({}) slot: ({}) lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({})",
+             pubkey, slot, lamports, owner, executable as u64, rent_epoch, data.len(), ret);
+
+        info!(
             "hash_account_data: pubkey: {} slot: {} lamports: {}  owner: {}  executable: {},  rent_epoch: {}, data_len: {}, data: {:?} = {}",
              pubkey, slot, lamports, owner, executable, rent_epoch, data.len(), data, ret);
 
