@@ -986,17 +986,43 @@ fn make_erasure_batch(
         Some(shred) => shred.common_header,
     };
     // Generate erasure codings for encoded shard of data shreds.
-    let data: Vec<_> = shreds
-        .iter()
-        .map(ShredData::erasure_shard_as_slice)
-        .collect::<Result<_, _>>()?;
-    // Shreds should have erasure encoded shard of the same length.
-    debug_assert_eq!(data.iter().map(|shard| shard.len()).dedup().count(), 1);
-    let mut parity = vec![vec![0u8; data[0].len()]; num_coding_shreds];
-    reed_solomon_cache
-        .get(num_data_shreds, num_coding_shreds)?
-        .encode_sep(&data, &mut parity[..])?;
-    let mut shreds: Vec<_> = shreds.into_iter().map(Shred::ShredData).collect();
+    let use_firedancer_reedsol = false;
+    let (mut shreds, parity) = if use_firedancer_reedsol {
+        let shred_sz = ShredData::erasure_shard_as_slice(&shreds[0])?.len();
+        let data_raw: Vec<_> = shreds
+            .iter()
+            .map(ShredData::erasure_shard_as_slice)
+            .map(|s| -> Result<*const u8, Error> { Ok(s?.as_ptr()) })
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let mut parity = vec![vec![0u8; shred_sz]; num_coding_shreds];
+        unsafe {
+            let parity_raw: Vec<_> = parity.iter_mut().map(|s| s.as_mut_ptr()).collect();
+            firedancer_sys::ballet::fd_reedsol_encode(
+                shred_sz.try_into().unwrap(),
+                data_raw.as_ptr(),
+                num_data_shreds.try_into().unwrap(),
+                parity_raw.as_ptr(),
+                num_coding_shreds.try_into().unwrap(),
+            );
+        }
+        let shreds: Vec<_> = shreds.into_iter().map(Shred::ShredData).collect();
+        (shreds, parity)
+    } else {
+        let data: Vec<_> = shreds
+            .iter()
+            .map(ShredData::erasure_shard_as_slice)
+            .collect::<Result<_, _>>()?;
+        // Shreds should have erasure encoded shard of the same length.
+        debug_assert_eq!(data.iter().map(|shard| shard.len()).dedup().count(), 1);
+        let mut parity = vec![vec![0u8; data[0].len()]; num_coding_shreds];
+        reed_solomon_cache
+            .get(num_data_shreds, num_coding_shreds)?
+            .encode_sep(&data, &mut parity[..])?;
+        let shreds: Vec<_> = shreds.into_iter().map(Shred::ShredData).collect();
+        (shreds, parity)
+    };
+
     // Initialize coding shreds from erasure coding shards.
     common_header.index = next_code_index;
     common_header.shred_variant = ShredVariant::MerkleCode(proof_size);
@@ -1349,29 +1375,36 @@ mod test {
             b"my", b"very", b"eager", b"mother", b"just", b"served", b"us", b"nine", b"pizzas",
             b"make", b"prime",
         ];
-        
-        let tree = make_merkle_tree( TEST.iter().map(|s| hashv(&[MERKLE_HASH_PREFIX_LEAF, s] )).collect() );
-        
+
+        let tree = make_merkle_tree(
+            TEST.iter()
+                .map(|s| hashv(&[MERKLE_HASH_PREFIX_LEAF, s]))
+                .collect(),
+        );
+
         for j in 0..TEST.len() {
             let branch = make_merkle_branch(j, TEST.len(), tree.as_slice());
             if let Some(x) = branch {
                 // print!("Index {}: ", j);
-                if j==0 {
+                if j == 0 {
                     print!("Root {{ ");
-                    for b in x.root { print!("{:#04x}, ", b);}
+                    for b in x.root {
+                        print!("{:#04x}, ", b);
+                    }
                     println!("}}");
                 }
 
                 println!("{{");
                 for pfelem in x.proof {
                     print!("   {{ ");
-                    for b in pfelem { print!("{:#04x}, ", b);}
+                    for b in pfelem {
+                        print!("{:#04x}, ", b);
+                    }
                     println!("}},");
                 }
                 println!("}},");
             }
         }
-        
     }
 
     #[test]
