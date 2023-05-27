@@ -116,6 +116,11 @@ use {
 
 const MAX_COMPLETED_DATA_SETS_IN_CHANNEL: usize = 100_000;
 const WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT: u64 = 80;
+#[derive(Clone)]
+pub struct FiredancerTurbineConfig {
+    pub pod_gaddr: String,
+    pub cfg_path: String
+}
 
 pub struct ValidatorConfig {
     pub halt_at_slot: Option<Slot>,
@@ -176,6 +181,7 @@ pub struct ValidatorConfig {
     pub wait_to_vote_slot: Option<Slot>,
     pub ledger_column_options: LedgerColumnOptions,
     pub runtime_config: RuntimeConfig,
+    pub firedancer_turbine_config: Option<FiredancerTurbineConfig>
 }
 
 impl Default for ValidatorConfig {
@@ -239,6 +245,7 @@ impl Default for ValidatorConfig {
             wait_to_vote_slot: None,
             ledger_column_options: LedgerColumnOptions::default(),
             runtime_config: RuntimeConfig::default(),
+            firedancer_turbine_config: None
         }
     }
 }
@@ -1028,6 +1035,11 @@ impl Validator {
             &connection_cache,
             &prioritization_fee_cache,
         );
+        let tango_shred_sender = if let Some(config) = &config.firedancer_turbine_config  {
+            unsafe { 
+            Some(Arc::new(std::sync::Mutex::new(firedancer::tango_tx::TangoTx::new(&config.pod_gaddr, &config.cfg_path).unwrap())))
+            }
+        } else { None };
 
         let tpu = Tpu::new(
             &cluster_info,
@@ -1063,6 +1075,7 @@ impl Validator {
             config.runtime_config.log_messages_bytes_limit,
             &staked_nodes,
             tpu_enable_udp,
+            tango_shred_sender
         );
 
         datapoint_info!(

@@ -23,6 +23,7 @@ crossbeam-channel = "0.5"
 dashmap = { version = "4.0.2", features = ["rayon", "raw-api"] }
 eager = "0.1.0"
 etcd-client = { version = "0.8.1", features = ["tls"] }
+firedancer = { path = "../../firedancer/ffi/rust/firedancer" }
 fs_extra = "1.2.0"
 histogram = "0.6.9"
 itertools = "0.10.3"

@@ -88,6 +88,7 @@ impl BroadcastStageType {
         blockstore: Arc<Blockstore>,
         bank_forks: Arc<RwLock<BankForks>>,
         shred_version: u16,
+        tango_tx: Option<Arc<Mutex<firedancer::tango_tx::TangoTx>>>,
     ) -> BroadcastStage {
         match self {
             BroadcastStageType::Standard => BroadcastStage::new(
@@ -98,7 +99,7 @@ impl BroadcastStageType {
                 exit_sender,
                 blockstore,
                 bank_forks,
-                StandardBroadcastRun::new(shred_version),
+                StandardBroadcastRun::new(shred_version, tango_tx),
             ),
 
             BroadcastStageType::FailEntryVerification => BroadcastStage::new(

@@ -863,7 +863,8 @@ pub fn next_entry_mut(start: &mut Hash, num_hashes: u64, transactions: Vec<Trans
 pub fn create_ticks(num_ticks: u64, hashes_per_tick: u64, mut hash: Hash) -> Vec<Entry> {
     let mut ticks = Vec::with_capacity(num_ticks as usize);
     for _ in 0..num_ticks {
-        let new_tick = next_entry_mut(&mut hash, hashes_per_tick, vec![solana_perf::test_tx::test_tx().into(); 20usize]);
+        let new_tick = next_entry_mut(&mut hash, hashes_per_tick, vec![]);
+        // let new_tick = next_entry_mut(&mut hash, hashes_per_tick, vec![solana_perf::test_tx::test_tx().into(); 20usize]);
         ticks.push(new_tick);
     }
 

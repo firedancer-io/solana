@@ -98,6 +98,7 @@ impl Tpu {
         log_messages_bytes_limit: Option<usize>,
         staked_nodes: &Arc<RwLock<StakedNodes>>,
         tpu_enable_udp: bool,
+        tango_shred_sender: Option<Arc<std::sync::Mutex<firedancer::tango_tx::TangoTx>>>
     ) -> Self {
         let TpuSockets {
             transactions: transactions_sockets,
@@ -241,6 +242,7 @@ impl Tpu {
             blockstore.clone(),
             bank_forks,
             shred_version,
+            tango_shred_sender
         );
 
         Self {

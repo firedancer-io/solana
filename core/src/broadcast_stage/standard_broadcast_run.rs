@@ -8,6 +8,7 @@ use {
     crate::{
         broadcast_stage::broadcast_utils::UnfinishedSlotInfo, cluster_nodes::ClusterNodesCache,
     },
+    firedancer::tango_tx::TangoTx,
     solana_entry::entry::Entry,
     solana_ledger::{
         blockstore,
@@ -18,7 +19,7 @@ use {
         signature::Keypair,
         timing::{duration_as_us, AtomicInterval},
     },
-    std::{sync::RwLock, time::Duration},
+    std::{mem::transmute_copy, sync::RwLock, time::Duration},
 };
 
 #[derive(Clone)]
@@ -34,6 +35,7 @@ pub struct StandardBroadcastRun {
     num_batches: usize,
     cluster_nodes_cache: Arc<ClusterNodesCache<BroadcastStage>>,
     reed_solomon_cache: Arc<ReedSolomonCache>,
+    tango_tx: Option<Arc<Mutex<TangoTx>>>,
 }
 
 #[derive(Debug)]
@@ -42,7 +44,7 @@ enum BroadcastError {
 }
 
 impl StandardBroadcastRun {
-    pub(super) fn new(shred_version: u16) -> Self {
+    pub(super) fn new(shred_version: u16, tango_tx: Option<Arc<Mutex<TangoTx>>>) -> Self {
         let cluster_nodes_cache = Arc::new(ClusterNodesCache::<BroadcastStage>::new(
             CLUSTER_NODES_CACHE_NUM_EPOCH_CAP,
             CLUSTER_NODES_CACHE_TTL,
@@ -59,6 +61,7 @@ impl StandardBroadcastRun {
             num_batches: 0,
             cluster_nodes_cache,
             reed_solomon_cache: Arc::<ReedSolomonCache>::default(),
+            tango_tx,
         }
     }
 
@@ -207,6 +210,100 @@ impl StandardBroadcastRun {
         let _ = self.transmit(&srecv, cluster_info, sock, bank_forks);
         let _ = self.record(&brecv, blockstore);
         Ok(())
+    }
+
+    fn process_receive_results_firedancer(
+        &mut self,
+        keypair: &Keypair,
+        blockstore: &Blockstore,
+        socket_sender: &Sender<(Arc<Vec<Shred>>, Option<BroadcastShredBatchInfo>)>,
+        blockstore_sender: &Sender<(Arc<Vec<Shred>>, Option<BroadcastShredBatchInfo>)>,
+        receive_results: ReceiveResults,
+        tango_tx: &mut TangoTx,
+    ) -> Result<()> {
+        // Skip the "last slot interrupted check"
+
+        #[repr(C)]
+        struct fd_entry_batch_meta {
+            pub slot: u64,
+            pub data_idx_offset: u64,
+            pub parity_idx_offset: u64,
+            pub version: u16,
+            pub parent_offset: u16,
+            pub reference_tick: u8,
+            pub block_complete: i32,
+        }
+
+        {
+            let bank = receive_results.bank.clone();
+
+            if self.current_slot_and_parent.is_none()
+                || bank.slot() != self.current_slot_and_parent.unwrap().0
+            {
+                self.slot_broadcast_start = Some(Instant::now());
+                self.num_batches = 0;
+                let slot = bank.slot();
+                let parent_slot = bank.parent_slot();
+
+                self.current_slot_and_parent = Some((slot, parent_slot));
+            }
+
+            let last_tick_height = receive_results.last_tick_height;
+            let is_last_in_slot = last_tick_height == bank.max_tick_height();
+            let reference_tick = bank.tick_height() % bank.ticks_per_slot();
+            let (slot, parent_slot) = self.current_slot_and_parent.unwrap();
+            let version = self.shred_version;
+
+            let meta = fd_entry_batch_meta {
+                slot,
+                data_idx_offset: 0u64,
+                parity_idx_offset: 0u64,
+                version,
+                parent_offset: (slot - parent_slot) as u16,
+                reference_tick: reference_tick as u8,
+                block_complete: is_last_in_slot.into(),
+            };
+            let meta_sz = std::mem::size_of::<fd_entry_batch_meta>();
+
+            let mut entry_batch_with_meta =
+                vec![0u8; meta_sz + bincode::serialized_size(&receive_results.entries)? as usize];
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    &meta as *const fd_entry_batch_meta as *const u8,
+                    entry_batch_with_meta.as_mut_ptr() as *mut u8,
+                    meta_sz,
+                );
+            }
+            bincode::serialize_into(
+                &mut entry_batch_with_meta[meta_sz..],
+                &receive_results.entries,
+            )?;
+
+            unsafe {
+                tango_tx.publish(&entry_batch_with_meta);
+            }
+        }
+        //let (dummy_socket_sender, dummy_socket_receiver) = unbounded();
+        let rv = self.process_receive_results(
+            keypair,
+            blockstore,
+            socket_sender,
+            blockstore_sender,
+            receive_results,
+        );
+        //drop(dummy_socket_receiver);
+        rv
+
+        /*
+        12 struct fd_entry_batch_meta {
+        13   ulong slot;
+        14   ulong data_idx_offset;
+        15   ulong parity_idx_offset;
+        16   ushort version;
+        17   ushort parent_offset;
+        18   uchar reference_tick;
+        19   int block_complete;
+        20 }; */
     }
 
     fn process_receive_results(
@@ -473,13 +570,25 @@ impl BroadcastRun for StandardBroadcastRun {
         let receive_results = broadcast_utils::recv_slot_entries(receiver)?;
         // TODO: Confirm that last chunk of coding shreds
         // will not be lost or delayed for too long.
-        self.process_receive_results(
-            keypair,
-            blockstore,
-            socket_sender,
-            blockstore_sender,
-            receive_results,
-        )
+        if let Some(tango_tx_arc) = &self.tango_tx.clone() {
+            let mut tango_tx_ref = tango_tx_arc.lock().unwrap();
+            self.process_receive_results_firedancer(
+                keypair,
+                blockstore,
+                socket_sender,
+                blockstore_sender,
+                receive_results,
+                &mut tango_tx_ref,
+            )
+        } else {
+            self.process_receive_results(
+                keypair,
+                blockstore,
+                socket_sender,
+                blockstore_sender,
+                receive_results,
+            )
+        }
     }
     fn transmit(
         &mut self,

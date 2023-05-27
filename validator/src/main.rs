@@ -1,6 +1,7 @@
 #![allow(clippy::integer_arithmetic)]
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
+use solana_core::validator::FiredancerTurbineConfig;
 use {
     clap::{
         crate_description, crate_name, value_t, value_t_or_exit, values_t, values_t_or_exit, App,
@@ -444,6 +445,8 @@ fn get_cluster_shred_version(entrypoints: &[SocketAddr]) -> Option<u16> {
 }
 
 pub fn main() {
+    firedancer::fd_boot(&[]);
+
     let default_dynamic_port_range =
         &format!("{}-{}", VALIDATOR_PORT_RANGE.0, VALIDATOR_PORT_RANGE.1);
     let default_genesis_archive_unpacked_size = &MAX_GENESIS_ARCHIVE_UNPACKED_SIZE.to_string();
@@ -1827,6 +1830,22 @@ pub fn main() {
                 .value_name("BYTES")
                 .help("Maximum number of bytes written to the program log before truncation")
         )
+        .arg(
+            Arg::with_name("firedancer_pod")
+            .long("firedancer-pod")
+            .takes_value(true)
+            .validator(is_parsable::<String>)
+            .value_name("POD_GADDR")
+            .help("the gaddr of the pod containing Firedancer configuration")
+        )
+        .arg(
+            Arg::with_name("firedancer_turbine_path")
+            .long("firedancer-turbine-path")
+            .takes_value(true)
+            .validator(is_parsable::<String>)
+            .value_name("POD_PATH")
+            .help("the path in the Firedancer config pod to a subpod containing mcache and dcache keys that entry batches will be written to")
+        )
         .after_help("The default subcommand is run")
         .subcommand(
             SubCommand::with_name("exit")
@@ -2720,6 +2739,11 @@ pub fn main() {
             log_messages_bytes_limit: value_of(&matches, "log_messages_bytes_limit"),
             ..RuntimeConfig::default()
         },
+        firedancer_turbine_config: if matches.is_present("firedancer_pod") {
+            Some(FiredancerTurbineConfig {
+            pod_gaddr: value_t_or_exit!(matches, "firedancer_pod", String),
+            cfg_path: value_t_or_exit!(matches, "firedancer_turbine_path", String),
+        }) } else { None },
         ..ValidatorConfig::default()
     };
 
