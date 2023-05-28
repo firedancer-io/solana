@@ -36,6 +36,14 @@ pub struct StandardBroadcastRun {
     cluster_nodes_cache: Arc<ClusterNodesCache<BroadcastStage>>,
     reed_solomon_cache: Arc<ReedSolomonCache>,
     tango_tx: Option<Arc<Mutex<TangoTx>>>,
+    fd_turbine_state: Option<FiredancerTurbineState>
+}
+
+#[derive(Clone)]
+pub struct FiredancerTurbineState {
+    pub slot: Slot,
+    pub data_idx_offset: u64,
+    pub parity_idx_offset: u64
 }
 
 #[derive(Debug)]
@@ -62,6 +70,7 @@ impl StandardBroadcastRun {
             cluster_nodes_cache,
             reed_solomon_cache: Arc::<ReedSolomonCache>::default(),
             tango_tx,
+            fd_turbine_state: None
         }
     }
 
@@ -254,19 +263,29 @@ impl StandardBroadcastRun {
             let (slot, parent_slot) = self.current_slot_and_parent.unwrap();
             let version = self.shred_version;
 
+            let (mut data_idx_offset, mut parity_idx_offset)
+             = if let Some(fd_turbine_state) = &self.fd_turbine_state {
+                if fd_turbine_state.slot == slot {
+                    (fd_turbine_state.data_idx_offset, fd_turbine_state.parity_idx_offset)
+                }
+                else { (0, 0) }
+            } else { (0, 0)};
+
+
             let meta = fd_entry_batch_meta {
                 slot,
-                data_idx_offset: 0u64,
-                parity_idx_offset: 0u64,
+                data_idx_offset,
+                parity_idx_offset,
                 version,
                 parent_offset: (slot - parent_slot) as u16,
                 reference_tick: reference_tick as u8,
                 block_complete: is_last_in_slot.into(),
             };
             let meta_sz = std::mem::size_of::<fd_entry_batch_meta>();
+            let entry_batch_sz = bincode::serialized_size(&receive_results.entries)?;
 
             let mut entry_batch_with_meta =
-                vec![0u8; meta_sz + bincode::serialized_size(&receive_results.entries)? as usize];
+                vec![0u8; meta_sz + entry_batch_sz as usize];
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     &meta as *const fd_entry_batch_meta as *const u8,
@@ -282,6 +301,11 @@ impl StandardBroadcastRun {
             unsafe {
                 tango_tx.publish(&entry_batch_with_meta);
             }
+            unsafe{ 
+            data_idx_offset   += firedancer_sys::ballet::fd_shredder_count_data_shreds(entry_batch_sz);
+            parity_idx_offset += firedancer_sys::ballet::fd_shredder_count_parity_shreds(entry_batch_sz);
+            }
+            self.fd_turbine_state = Some(FiredancerTurbineState {slot, data_idx_offset, parity_idx_offset});
         }
         //let (dummy_socket_sender, dummy_socket_receiver) = unbounded();
         let rv = self.process_receive_results(
