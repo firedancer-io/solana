@@ -4748,75 +4748,71 @@ impl Bank {
         info!("calculate_fee bt: {}", bt);
         ret
     }
-
-
+    /// Calculate fee for `SanitizedMessage`
     pub fn wrapped_calculate_fee(
         slot: Slot,
         invoked_func: String,
         message: &SanitizedMessage,
         lamports_per_signature: u64,
         fee_structure: &FeeStructure,
-        tx_wide_compute_cap: bool,
         support_set_compute_unit_price_ix: bool,
+        use_default_units_per_instruction: bool,
+        enable_request_heap_frame_ix: bool,
     ) -> u64 {
+        // Fee based on compute units and signatures
+        const BASE_CONGESTION: f64 = 5_000.0;
+        let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
+        let congestion_multiplier = if lamports_per_signature == 0 {
+            0.0 // test only
+        } else {
+            BASE_CONGESTION / current_congestion
+        };
 
-        if tx_wide_compute_cap {
-            // Fee based on compute units and signatures
-            const BASE_CONGESTION: f64 = 5_000.0;
-            let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
-            let congestion_multiplier = if lamports_per_signature == 0 {
-                0.0 // test only
-            } else {
-                BASE_CONGESTION / current_congestion
-            };
+        let mut compute_budget = ComputeBudget::default();
+        let prioritization_fee_details = compute_budget
+            .process_instructions(
+                message.program_instructions_iter(),
+                use_default_units_per_instruction,
+                support_set_compute_unit_price_ix,
+                enable_request_heap_frame_ix,
+            )
+            .unwrap_or_default();
+        let prioritization_fee = prioritization_fee_details.get_fee();
+        let signature_fee = Self::get_num_signatures_in_message(message)
+            .saturating_mul(fee_structure.lamports_per_signature);
+        let write_lock_fee = Self::get_num_write_locks_in_message(message)
+            .saturating_mul(fee_structure.lamports_per_write_lock);
+        let compute_fee = fee_structure
+            .compute_fee_bins
+            .iter()
+            .find(|bin| compute_budget.compute_unit_limit <= bin.limit)
+            .map(|bin| bin.fee)
+            .unwrap_or_else(|| {
+                fee_structure
+                    .compute_fee_bins
+                    .last()
+                    .map(|bin| bin.fee)
+                    .unwrap_or_default()
+            });
 
-            let mut compute_budget = ComputeBudget::default();
-            let prioritization_fee_details = compute_budget
-                .process_instructions(
-                    message.program_instructions_iter(),
-                    false,
-                    false,
-                    support_set_compute_unit_price_ix,
-                )
-                .unwrap_or_default();
-            let prioritization_fee = prioritization_fee_details.get_fee();
-            let signature_fee = Self::get_num_signatures_in_message(message)
-                .saturating_mul(fee_structure.lamports_per_signature);
-            let write_lock_fee = Self::get_num_write_locks_in_message(message)
-                .saturating_mul(fee_structure.lamports_per_write_lock);
-            let compute_fee = fee_structure
-                .compute_fee_bins
-                .iter()
-                .find(|bin| compute_budget.compute_unit_limit <= bin.limit)
-                .map(|bin| bin.fee)
-                .unwrap_or_else(|| {
-                    fee_structure
-                        .compute_fee_bins
-                        .last()
-                        .map(|bin| bin.fee)
-                        .unwrap_or_default()
-                });
+        let ret = ((prioritization_fee
+            .saturating_add(signature_fee)
+            .saturating_add(write_lock_fee)
+            .saturating_add(compute_fee) as f64)
+            * congestion_multiplier)
+            .round() as u64;
 
-
-            let ret = ((prioritization_fee
-                .saturating_add(signature_fee)
-                .saturating_add(write_lock_fee)
-                .saturating_add(compute_fee) as f64)
-                * congestion_multiplier)
-                .round() as u64;
-
-            info!("calculate_fee_compare: slot({}) invoked from({}) fee({}) lamports_per_signature({}) tx_wide_compute_cap({}) support_set_({}) prioritization_fee({}) signature_fee({}) write_lock_fee({}) compute_fee({}) congestion_multiplier({})",
-                slot, invoked_func, ret, lamports_per_signature, tx_wide_compute_cap as u64, support_set_compute_unit_price_ix as u64,
+        info!("calculate_fee_compare: slot({}) invoked from({}) fee({}) lamports_per_signature({}) support_set_({}) prioritization_fee({}) signature_fee({}) write_lock_fee({}) compute_fee({}) congestion_multiplier({})",
+                slot, invoked_func, ret, lamports_per_signature, support_set_compute_unit_price_ix as u64,
               prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier);
 
-            let bt = Backtrace::capture();
-            info!("calculate_fee bt: {}", bt);
+        info!("calculate_fee: lamports_per_signature: {} support_set_: {}  prioritization_fee: {}  signature_fee: {}  write_lock_fee: {}  compute_fee: {}  congestion_multiplier: {}  ret: {}",
+              lamports_per_signature, support_set_compute_unit_price_ix,
+              prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
 
-            ret
-        } else {
-            // Fee based only on signatures
-            lamports_per_signature.saturating_mul(Self::get_num_signatures_in_message(message))
-        }
+        let bt = Backtrace::capture();
+        info!("calculate_fee bt: {}", bt);
+        ret
     }
 
     fn filter_program_errors_and_collect_fee(
