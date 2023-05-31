@@ -27,6 +27,7 @@ solana-measure = { path = "../measure", version = "=1.14.18" }
 solana-metrics = { path = "../metrics", version = "=1.14.18" }
 solana-sdk = { path = "../sdk", version = "=1.14.18" }
 serde_with = "*"
+hex-serde = "0.1.0"
 serde_json = "1.0.91"
 thiserror = "1.0"
 enum-iterator = "0.8.1"

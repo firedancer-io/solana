@@ -1964,9 +1964,25 @@ checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
 
 [[package]]
 name = "hex"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "805026a5d0141ffc30abb3be3173848ad46a1b1664fe632428479619a3644d77"
+
+[[package]]
+name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hex-serde"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3486d7bc9e52c4c5fc1856ae8a5e4ab41d2499fc20bbc44492e244e8bf1b7012"
+dependencies = [
+ "hex 0.3.2",
+ "serde",
+]
 
 [[package]]
 name = "hidapi"
@@ -5712,7 +5728,7 @@ name = "solana-merkle-tree"
 version = "1.14.18"
 dependencies = [
  "fast-math",
- "hex",
+ "hex 0.4.3",
  "matches",
  "solana-program 1.14.18",
 ]
@@ -5947,6 +5963,7 @@ dependencies = [
  "bincode",
  "eager",
  "enum-iterator",
+ "hex-serde",
  "itertools",
  "libc",
  "libloading",
@@ -6113,7 +6130,8 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "fnv",
- "hex",
+ "hex 0.4.3",
+ "hex-serde",
  "im",
  "index_list",
  "itertools",
@@ -6234,7 +6252,7 @@ dependencies = [
  "ed25519-dalek",
  "ed25519-dalek-bip32",
  "generic-array 0.14.5",
- "hex",
+ "hex 0.4.3",
  "hmac 0.12.1",
  "itertools",
  "js-sys",

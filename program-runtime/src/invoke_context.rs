@@ -25,6 +25,7 @@ use {
         pubkey::Pubkey,
         rent::Rent,
         saturating_add_assign,
+        clock::Epoch,
         transaction_context::{InstructionAccount, TransactionAccount, TransactionContext},
     },
     std::{
@@ -1070,7 +1071,24 @@ pub fn with_mock_invoke_context<R, F: FnMut(&mut InvokeContext) -> R>(
 struct TestTransactionAccount {
     #[serde_as(as = "DisplayFromStr")]
     pubkey: Pubkey,
-    shared_data: AccountSharedData,
+    shared_data: TestAccountSharedData,
+}
+
+#[serde_with::serde_as]
+#[derive(Serialize)]
+struct TestAccountSharedData {
+    /// lamports in the account
+    lamports: u64,
+    /// data held in this account
+    #[serde(with = "hex_serde")]
+    data: Vec<u8>,
+    /// the program that owns this account. If executable, the program that loads this account.
+    #[serde_as(as = "DisplayFromStr")]
+    owner: Pubkey,
+    /// this account's data contains a loaded program (and is now read-only)
+    executable: bool,
+    /// the epoch at which this account will next owe rent
+    rent_epoch: Epoch,
 }
 
 #[serde_as]
@@ -1110,7 +1128,7 @@ pub fn mock_process_instruction(
         program_id: loader_id.clone(),
         instruction_data: Vec::from(instruction_data),
         transaction_accounts: transaction_accounts.clone().into_iter().map(|(pubkey, shared_data)| {
-            TestTransactionAccount { pubkey, shared_data }
+            TestTransactionAccount { pubkey, shared_data: TestAccountSharedData { lamports: shared_data.lamports(), data: shared_data.data().to_vec(), owner: *shared_data.owner(), executable: shared_data.executable(), rent_epoch: shared_data.rent_epoch() } }
         }).collect(),
         instruction_accounts: instruction_accounts.clone().into_iter().map(|acc_meta| {
             TestInstructionAccount { pubkey: acc_meta.pubkey, is_signer: acc_meta.is_signer, is_writable: acc_meta.is_writable }
