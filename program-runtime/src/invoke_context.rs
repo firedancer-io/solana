@@ -35,6 +35,7 @@ use {
         fmt::{self, Debug},
         rc::Rc,
         sync::Arc,
+        sync::atomic::{AtomicUsize, Ordering}
     },
 };
 
@@ -1108,11 +1109,13 @@ struct TestCase {
     program_id: Pubkey,
     #[serde(with = "hex_serde")]
     instruction_data: Vec<u8>,
+    nonce: u16,
     transaction_accounts: Vec<TestTransactionAccount>,
     resulting_accounts: Vec<TestAccountSharedData>,
     instruction_accounts: Vec<TestInstructionAccount>,
     expected_result: Result<(), InstructionError>,
 }
+
 
 pub fn mock_process_instruction(
     loader_id: &Pubkey,
@@ -1125,6 +1128,8 @@ pub fn mock_process_instruction(
     expected_result: Result<(), InstructionError>,
     process_instruction: ProcessInstructionWithContext,
 ) -> Vec<AccountSharedData> {
+    static MOCK_PROCESS_NONCE : AtomicUsize = AtomicUsize::new(0);
+
     let before : Vec<TestTransactionAccount> = transaction_accounts.clone().into_iter().map(|(pubkey, shared_data)| {
             TestTransactionAccount { pubkey, shared_data: TestAccountSharedData { lamports: shared_data.lamports(), data: shared_data.data().to_vec(), owner: *shared_data.owner(), executable: shared_data.executable(), rent_epoch: shared_data.rent_epoch() } }
         }).collect();
@@ -1162,6 +1167,7 @@ pub fn mock_process_instruction(
     transaction_accounts.pop();
 
     println!("test_case_json {}", serde_json::to_string(&TestCase {
+        nonce: MOCK_PROCESS_NONCE.fetch_add(1, Ordering::Relaxed) as u16,
         name: std::thread::current().name().unwrap().to_string(),
         program_id: loader_id.clone(),
         instruction_data: Vec::from(instruction_data),
