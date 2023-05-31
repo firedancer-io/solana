@@ -319,6 +319,9 @@ impl RepairService {
 
                 repairs
             };
+            if root_bank.slot() > 600 {
+                continue;
+            }
 
             let identity_keypair: &Keypair = &repair_info.cluster_info.keypair().clone();
 

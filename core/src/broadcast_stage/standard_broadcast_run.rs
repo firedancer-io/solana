@@ -307,15 +307,15 @@ impl StandardBroadcastRun {
             }
             self.fd_turbine_state = Some(FiredancerTurbineState {slot, data_idx_offset, parity_idx_offset});
         }
-        //let (dummy_socket_sender, dummy_socket_receiver) = unbounded();
+        let (dummy_socket_sender, dummy_socket_receiver) = unbounded();
         let rv = self.process_receive_results(
             keypair,
             blockstore,
-            socket_sender,
+            &dummy_socket_sender,
             blockstore_sender,
             receive_results,
         );
-        //drop(dummy_socket_receiver);
+        drop(dummy_socket_receiver);
         rv
 
         /*
