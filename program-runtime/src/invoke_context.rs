@@ -1106,8 +1106,10 @@ struct TestCase {
     name: String,
     #[serde_as(as = "DisplayFromStr")]
     program_id: Pubkey,
+    #[serde(with = "hex_serde")]
     instruction_data: Vec<u8>,
     transaction_accounts: Vec<TestTransactionAccount>,
+    resulting_accounts: Vec<TestAccountSharedData>,
     instruction_accounts: Vec<TestInstructionAccount>,
     expected_result: Result<(), InstructionError>,
 }
@@ -1123,22 +1125,13 @@ pub fn mock_process_instruction(
     expected_result: Result<(), InstructionError>,
     process_instruction: ProcessInstructionWithContext,
 ) -> Vec<AccountSharedData> {
-    println!("test_case_json {}", serde_json::to_string(&TestCase {
-        name: std::thread::current().name().unwrap().to_string(),
-        program_id: loader_id.clone(),
-        instruction_data: Vec::from(instruction_data),
-        transaction_accounts: transaction_accounts.clone().into_iter().map(|(pubkey, shared_data)| {
+    let before : Vec<TestTransactionAccount> = transaction_accounts.clone().into_iter().map(|(pubkey, shared_data)| {
             TestTransactionAccount { pubkey, shared_data: TestAccountSharedData { lamports: shared_data.lamports(), data: shared_data.data().to_vec(), owner: *shared_data.owner(), executable: shared_data.executable(), rent_epoch: shared_data.rent_epoch() } }
-        }).collect(),
-        instruction_accounts: instruction_accounts.clone().into_iter().map(|acc_meta| {
-            TestInstructionAccount { pubkey: acc_meta.pubkey, is_signer: acc_meta.is_signer, is_writable: acc_meta.is_writable }
-        }).collect(),
-        expected_result: expected_result.clone(),
-    }).unwrap());
+        }).collect();
 
     program_indices.insert(0, transaction_accounts.len());
     let mut preparation =
-        prepare_mock_invoke_context(transaction_accounts, instruction_accounts, &program_indices);
+        prepare_mock_invoke_context(transaction_accounts.clone(), instruction_accounts.clone(), &program_indices);
     let processor_account = AccountSharedData::new(0, 0, &native_loader::id());
     preparation
         .transaction_accounts
@@ -1167,6 +1160,21 @@ pub fn mock_process_instruction(
     assert_eq!(result.and(pop_result), expected_result);
     let mut transaction_accounts = transaction_context.deconstruct_without_keys().unwrap();
     transaction_accounts.pop();
+
+    println!("test_case_json {}", serde_json::to_string(&TestCase {
+        name: std::thread::current().name().unwrap().to_string(),
+        program_id: loader_id.clone(),
+        instruction_data: Vec::from(instruction_data),
+        transaction_accounts: before,
+        resulting_accounts: transaction_accounts.clone().into_iter().map(|shared_data| {
+            TestAccountSharedData { lamports: shared_data.lamports(), data: shared_data.data().to_vec(), owner: *shared_data.owner(), executable: shared_data.executable(), rent_epoch: shared_data.rent_epoch() }
+        }).collect(),
+        instruction_accounts: instruction_accounts.clone().into_iter().map(|acc_meta| {
+            TestInstructionAccount { pubkey: acc_meta.pubkey, is_signer: acc_meta.is_signer, is_writable: acc_meta.is_writable }
+        }).collect(),
+        expected_result: expected_result.clone(),
+    }).unwrap());
+
     transaction_accounts
 }
 
