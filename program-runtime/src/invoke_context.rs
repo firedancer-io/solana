@@ -1109,6 +1109,7 @@ struct TestCase {
     program_id: Pubkey,
     #[serde(with = "hex_serde")]
     instruction_data: Vec<u8>,
+    feature_set: String,
     nonce: u16,
     transaction_accounts: Vec<TestTransactionAccount>,
     resulting_accounts: Vec<TestAccountSharedData>,
@@ -1151,7 +1152,9 @@ pub fn mock_process_instruction(
     if let Some(sysvar_cache) = sysvar_cache_override {
         invoke_context.sysvar_cache = Cow::Borrowed(sysvar_cache);
     }
+    let mut fs = "[]".to_string();
     if let Some(feature_set) = feature_set_override {
+        fs = (&serde_json::to_string(&feature_set.inactive).unwrap()).to_string();
         invoke_context.feature_set = feature_set;
     }
     let result = invoke_context
@@ -1170,6 +1173,7 @@ pub fn mock_process_instruction(
         nonce: MOCK_PROCESS_NONCE.fetch_add(1, Ordering::Relaxed) as u16,
         name: std::thread::current().name().unwrap().to_string(),
         program_id: loader_id.clone(),
+        feature_set: fs,
         instruction_data: Vec::from(instruction_data),
         transaction_accounts: before,
         resulting_accounts: transaction_accounts.clone().into_iter().map(|shared_data| {
