@@ -18,6 +18,7 @@ export RUST_BACKTRACE=1
 #./cargo nightly test --workspace --lib -- tests --nocapture > out
 #grep test_case_json out | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort > mainnet.json
 
+# grep 'test_sign {' out | sed -e 's/.*test_sign {/{/' -e 's/$/,/' -e 's///' | sort > signs.json
 
 # grep test_transfer_lamports out.json
 
