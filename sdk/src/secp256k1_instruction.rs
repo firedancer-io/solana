@@ -801,6 +801,9 @@ use {
     std::sync::Arc,
 };
 
+use std::backtrace::Backtrace;
+use serde_with::serde_as;
+
 pub const HASHED_PUBKEY_SERIALIZED_SIZE: usize = 20;
 pub const SIGNATURE_SERIALIZED_SIZE: usize = 64;
 pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 11;
@@ -917,6 +920,34 @@ pub fn construct_eth_pubkey(
     addr
 }
 
+#[serde_as]
+#[derive(Serialize)]
+struct Sec256k1TestCase {
+    #[serde(with = "hex_serde")]
+    backtrace: String,
+    instruction_data: Vec<u8>,
+    instruction_datas: Vec<Vec<u8>>,
+    expected_result: Result<(), PrecompileError>
+}
+
+pub fn verify(
+    data: &[u8],
+    instruction_datas: &[&[u8]],
+    _feature_set: &Arc<FeatureSet>,
+) -> Result<(), PrecompileError> {
+    let result = verify_real(data, instruction_datas, _feature_set);
+
+    let bts = Backtrace::capture().to_string();
+    println!("test_sec256k1 {}", serde_json::to_string(&Sec256k1TestCase {
+        backtrace: bts,
+        instruction_data: Vec::from(data),
+        instruction_datas: instruction_datas.clone().into_iter().map(|&d| { Vec::from(d) }).collect(),
+        expected_result: result.clone()
+    }).unwrap());
+
+    result
+}
+
 /// Verifies the signatures specified in the secp256k1 instruction data.
 ///
 /// This is same the verification routine executed by the runtime's secp256k1 native program,
@@ -930,7 +961,7 @@ pub fn construct_eth_pubkey(
 /// disable a few minor additional checks that were activated on chain
 /// subsequent to the addition of the secp256k1 native program. For many
 /// purposes passing `Arc::new<FeatureSet::all_enabled()>` is reasonable.
-pub fn verify(
+pub fn verify_real(
     data: &[u8],
     instruction_datas: &[&[u8]],
     feature_set: &Arc<FeatureSet>,

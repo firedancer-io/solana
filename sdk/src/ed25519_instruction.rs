@@ -7,6 +7,10 @@ use {
     std::sync::Arc,
 };
 
+use std::backtrace::Backtrace;
+use serde::Serialize;
+use serde_with::serde_as;
+
 pub const PUBKEY_SERIALIZED_SIZE: usize = 32;
 pub const SIGNATURE_SERIALIZED_SIZE: usize = 64;
 pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14;
@@ -79,12 +83,39 @@ pub fn new_ed25519_instruction(keypair: &ed25519_dalek::Keypair, message: &[u8])
     }
 }
 
+#[serde_as]
+#[derive(Serialize)]
+struct Ed25519TestCase {
+    #[serde(with = "hex_serde")]
+    backtrace: String,
+    instruction_data: Vec<u8>,
+    instruction_datas: Vec<Vec<u8>>,
+    expected_result: Result<(), PrecompileError>
+}
+
 pub fn verify(
     data: &[u8],
     instruction_datas: &[&[u8]],
     _feature_set: &Arc<FeatureSet>,
 ) -> Result<(), PrecompileError> {
-    println!("hi_mom: {}", std::thread::current().name().unwrap().to_string());
+    let result = verify_real(data, instruction_datas, _feature_set);
+
+    let bts = Backtrace::capture().to_string();
+    println!("test_ed25519 {}", serde_json::to_string(&Ed25519TestCase {
+        backtrace: bts,
+        instruction_data: Vec::from(data),
+        instruction_datas: instruction_datas.clone().into_iter().map(|&d| { Vec::from(d) }).collect(),
+        expected_result: result.clone()
+    }).unwrap());
+
+    result
+}
+
+pub fn verify_real(
+    data: &[u8],
+    instruction_datas: &[&[u8]],
+    _feature_set: &Arc<FeatureSet>,
+) -> Result<(), PrecompileError> {
 
     if data.len() < SIGNATURE_OFFSETS_START {
         return Err(PrecompileError::InvalidInstructionDataSize);
