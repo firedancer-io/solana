@@ -935,6 +935,8 @@ pub fn verify(
     instruction_datas: &[&[u8]],
     feature_set: &Arc<FeatureSet>,
 ) -> Result<(), PrecompileError> {
+    println!("hi_mom: {}", std::thread::current().name().unwrap().to_string());
+
     if data.is_empty() {
         return Err(PrecompileError::InvalidInstructionDataSize);
     }

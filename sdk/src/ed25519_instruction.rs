@@ -84,6 +84,8 @@ pub fn verify(
     instruction_datas: &[&[u8]],
     _feature_set: &Arc<FeatureSet>,
 ) -> Result<(), PrecompileError> {
+    println!("hi_mom: {}", std::thread::current().name().unwrap().to_string());
+
     if data.len() < SIGNATURE_OFFSETS_START {
         return Err(PrecompileError::InvalidInstructionDataSize);
     }

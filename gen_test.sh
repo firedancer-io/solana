@@ -6,10 +6,23 @@ export PKG_CONFIG_PATH
 #./cargo nightly clean
 #./cargo nightly build
 
-#./cargo nightly test --package solana-stake-program --lib -- --nocapture  > out
+./cargo nightly test --package solana-sdk --lib -- --nocapture  > out
+
 export RUST_BACKTRACE=1
 #./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests::test_create_from_account_is_nonce_fail --nocapture > out
-./cargo nightly test --workspace --lib -- tests --nocapture > out
-grep test_case_json out | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort > out.json
+
+#./cargo nightly test --workspace --lib -- tests --nocapture > out
+#grep test_case_json out | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort > out.json
+
+#export MAINNET=1
+#./cargo nightly test --workspace --lib -- tests --nocapture > out
+#grep test_case_json out | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort > mainnet.json
+
 
 # grep test_transfer_lamports out.json
+
+#	modified:   gen_test.sh
+#	modified:   program-runtime/src/invoke_context.rs
+#	modified:   sdk/src/ed25519_instruction.rs
+#	modified:   sdk/src/secp256k1_instruction.rs
+
