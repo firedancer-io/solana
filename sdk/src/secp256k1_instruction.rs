@@ -925,6 +925,8 @@ pub fn construct_eth_pubkey(
 struct Sec256k1TestCase {
     #[serde(with = "hex_serde")]
     backtrace: String,
+    name: String,
+    prog: String,
     instruction_data: Vec<u8>,
     instruction_datas: Vec<Vec<u8>>,
     expected_result: Result<(), PrecompileError>
@@ -938,8 +940,10 @@ pub fn verify(
     let result = verify_real(data, instruction_datas, _feature_set);
 
     let bts = Backtrace::capture().to_string();
-    println!("test_sec256k1 {}", serde_json::to_string(&Sec256k1TestCase {
+    println!("test_sign {}", serde_json::to_string(&Sec256k1TestCase {
         backtrace: bts,
+        name: std::thread::current().name().unwrap().to_string(),
+        prog: "KeccakSecp256k11111111111111111111111111111".to_string(),
         instruction_data: Vec::from(data),
         instruction_datas: instruction_datas.clone().into_iter().map(|&d| { Vec::from(d) }).collect(),
         expected_result: result.clone()
