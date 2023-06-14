@@ -2368,4 +2368,118 @@ mod tests {
             upgraded_nonce_account
         );
     }
+
+    #[test]
+    fn test_allocate() {
+        let new_owner = Pubkey::from([9; 32]);
+        let from = Pubkey::new_unique();
+        let to = Pubkey::new_unique();
+        let from_account = AccountSharedData::new(100, 0, &system_program::id());
+        let to_account = AccountSharedData::new(0, 0, &Pubkey::default());
+
+        let accounts = process_instruction(
+            &bincode::serialize(&SystemInstruction::Allocate {
+                space: 2,
+            })
+            .unwrap(),
+            vec![(from, from_account), (to, to_account)],
+            vec![
+                AccountMeta {
+                    pubkey: from,
+                    is_signer: true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey: to,
+                    is_signer: true,
+                    is_writable: true,
+                },
+            ],
+            Ok(()),
+            super::process_instruction,
+        );
+        assert_eq!(accounts[0].lamports(), 50);
+        assert_eq!(accounts[1].lamports(), 50);
+        assert_eq!(accounts[1].owner(), &new_owner);
+        assert_eq!(accounts[1].data(), &[0, 0]);
+    }
+
+    #[test]
+    fn test_allocate_with_seed() {
+        let new_owner = Pubkey::from([9; 32]);
+        let from = Pubkey::new_unique();
+        let to = Pubkey::new_unique();
+        let from_account = AccountSharedData::new(100, 0, &system_program::id());
+        let to_account = AccountSharedData::new(0, 0, &Pubkey::default());
+
+        let seed = "shiny pepper";
+
+        let accounts = process_instruction(
+            &bincode::serialize(&SystemInstruction::AllocateWithSeed {
+                base: from,
+                seed: seed.to_string(),
+                space: 2,
+                owner: new_owner,
+            })
+            .unwrap(),
+            vec![(from, from_account), (to, to_account)],
+            vec![
+                AccountMeta {
+                    pubkey: from,
+                    is_signer: true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey: to,
+                    is_signer: true,
+                    is_writable: true,
+                },
+            ],
+            Ok(()),
+            super::process_instruction,
+        );
+        assert_eq!(accounts[0].lamports(), 50);
+        assert_eq!(accounts[1].lamports(), 50);
+        assert_eq!(accounts[1].owner(), &new_owner);
+        assert_eq!(accounts[1].data(), &[0, 0]);
+    }
+
+    #[test]
+    fn test_assign_with_seed() {
+        let new_owner = Pubkey::from([9; 32]);
+        let from = Pubkey::new_unique();
+        let to = Pubkey::new_unique();
+        let from_account = AccountSharedData::new(100, 0, &system_program::id());
+        let to_account = AccountSharedData::new(0, 0, &Pubkey::default());
+        let seed = "shiny pepper";
+
+        let accounts = process_instruction(
+            &bincode::serialize(&SystemInstruction::AssignWithSeed {
+                base: from,
+                seed: seed.to_string(),
+                owner: new_owner,
+            })
+            .unwrap(),
+            vec![(from, from_account), (to, to_account)],
+            vec![
+                AccountMeta {
+                    pubkey: from,
+                    is_signer: true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey: to,
+                    is_signer: true,
+                    is_writable: true,
+                },
+            ],
+            Ok(()),
+            super::process_instruction,
+        );
+        assert_eq!(accounts[0].lamports(), 50);
+        assert_eq!(accounts[1].lamports(), 50);
+        assert_eq!(accounts[1].owner(), &new_owner);
+        assert_eq!(accounts[1].data(), &[0, 0]);
+    }
+
 }
