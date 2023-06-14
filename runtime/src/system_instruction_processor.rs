@@ -1798,37 +1798,95 @@ mod tests {
 
     #[test]
     fn test_assign_with_seed() {
-        let (genesis_config, mint_keypair) = create_genesis_config(sol_to_lamports(1.0));
-        let bank = Bank::new_for_tests(&genesis_config);
-        let bank_client = BankClient::new(bank);
+        let base_pubkey = Pubkey::new_unique();
+        let alice_account = AccountSharedData::new(100, 2, &system_program::id());
 
-        let alice_keypair = Keypair::new();
-        let alice_pubkey = alice_keypair.pubkey();
         let seed = "seed";
         let owner = Pubkey::new_unique();
-        let alice_with_seed = Pubkey::create_with_seed(&alice_pubkey, seed, &owner).unwrap();
 
-        bank_client
-            .transfer_and_confirm(
-                genesis_config.rent.minimum_balance(0),
-                &mint_keypair,
-                &alice_pubkey,
-            )
-            .unwrap();
+        let alice_with_seed = Pubkey::create_with_seed(&base_pubkey, seed, &owner).unwrap();
 
-        let assign_with_seed = Message::new(
-            &[system_instruction::assign_with_seed(
-                &alice_with_seed,
-                &alice_pubkey,
-                seed,
-                &owner,
-            )],
-            Some(&alice_pubkey),
+        process_instruction(
+            &bincode::serialize(&SystemInstruction::AssignWithSeed { base: base_pubkey, seed: seed.to_string(),  owner: owner}).unwrap(),
+            vec![(base_pubkey, alice_account.clone())],
+            vec![
+                AccountMeta {
+                    pubkey: base_pubkey,
+                    is_signer: true,
+                    is_writable: false,
+                }
+            ],
+            Err(SystemError::AddressWithSeedMismatch.into()),
+            super::process_instruction,
         );
 
-        assert!(bank_client
-            .send_and_confirm_message(&[&alice_keypair], assign_with_seed)
-            .is_ok());
+        let empty_account = AccountSharedData::new(100, 0, &system_program::id());
+
+        process_instruction(
+            &bincode::serialize(&SystemInstruction::AssignWithSeed { base: base_pubkey, seed: seed.to_string(),  owner: owner}).unwrap(),
+            vec![
+                (alice_with_seed.clone(), empty_account.clone()),
+                (base_pubkey.clone(), alice_account.clone())
+            ],
+            vec![
+                AccountMeta {
+                    pubkey: alice_with_seed,
+                    is_signer: true,
+                    is_writable: false,
+                },
+                AccountMeta {
+                    pubkey: base_pubkey,
+                    is_signer: true,
+                    is_writable: true,
+                }
+            ],
+            Err(InstructionError::ModifiedProgramId),
+            super::process_instruction,
+        );
+
+        process_instruction(
+            &bincode::serialize(&SystemInstruction::AssignWithSeed { base: base_pubkey, seed: seed.to_string(),  owner: owner}).unwrap(),
+            vec![
+                (alice_with_seed.clone(), empty_account.clone()),
+                (base_pubkey.clone(), alice_account.clone())
+            ],
+            vec![
+                AccountMeta {
+                    pubkey: alice_with_seed,
+                    is_signer: true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey: base_pubkey,
+                    is_signer: false,
+                    is_writable: true,
+                }
+            ],
+            Err(InstructionError::MissingRequiredSignature),
+            super::process_instruction,
+        );
+
+        process_instruction(
+            &bincode::serialize(&SystemInstruction::AssignWithSeed { base: base_pubkey, seed: seed.to_string(),  owner: owner}).unwrap(),
+            vec![
+                (alice_with_seed.clone(), empty_account.clone()),
+                (base_pubkey.clone(), alice_account.clone())
+            ],
+            vec![
+                AccountMeta {
+                    pubkey: alice_with_seed,
+                    is_signer: true,
+                    is_writable: true,
+                },
+                AccountMeta {
+                    pubkey: base_pubkey,
+                    is_signer: true,
+                    is_writable: true,
+                }
+            ],
+            Ok(()),
+            super::process_instruction,
+        );
     }
 
     #[test]
