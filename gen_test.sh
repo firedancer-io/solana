@@ -6,10 +6,10 @@ export PKG_CONFIG_PATH
 #./cargo nightly clean
 #./cargo nightly build
 
-./cargo nightly test --package solana-sdk --lib -- --nocapture  > out
+#./cargo nightly test --package solana-sdk --lib -- ed25519_instruction::test::test_message_data_offsets --nocapture  > out
 
 export RUST_BACKTRACE=1
-#./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests::test_create_from_account_is_nonce_fail --nocapture > out
+./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests::test_create_from_account_is_nonce_fail --nocapture > out
 
 #./cargo nightly test --workspace --lib -- tests --nocapture > out
 #grep test_case_json out | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort > out.json
@@ -26,4 +26,3 @@ export RUST_BACKTRACE=1
 #	modified:   program-runtime/src/invoke_context.rs
 #	modified:   sdk/src/ed25519_instruction.rs
 #	modified:   sdk/src/secp256k1_instruction.rs
-
