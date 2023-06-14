@@ -1578,6 +1578,21 @@ mod tests {
             Err(InstructionError::ReadonlyDataModified),
             super::process_instruction,
         );
+
+        process_instruction(
+            &bincode::serialize(&SystemInstruction::Allocate { space: 2 as u64}).unwrap(),
+            vec![(alice_pubkey, empty_account.clone())],
+            vec![
+                AccountMeta {
+                    pubkey: alice_pubkey,
+                    is_signer: false,
+                    is_writable: true,
+                }
+            ],
+            Err(InstructionError::MissingRequiredSignature),
+            super::process_instruction,
+        );
+
         process_instruction(
             &bincode::serialize(&SystemInstruction::Allocate { space: 2 as u64}).unwrap(),
             vec![(alice_pubkey, empty_account.clone())],
