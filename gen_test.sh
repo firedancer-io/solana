@@ -9,7 +9,7 @@ export PKG_CONFIG_PATH
 #./cargo nightly test --package solana-sdk --lib -- ed25519_instruction::test::test_message_data_offsets --nocapture  > out
 
 export RUST_BACKTRACE=1
-./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests::test_create_from_account_is_nonce_fail --nocapture > out
+./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests::test_allocate --nocapture
 
 #./cargo nightly test --workspace --lib -- tests --nocapture > out
 #grep test_case_json out | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort > out.json
