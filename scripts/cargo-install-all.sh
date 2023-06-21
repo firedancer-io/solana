@@ -26,7 +26,7 @@ EOF
   exit $exitcode
 }
 
-maybeRustVersion=
+maybeRustVersion=nightly
 installDir=
 buildVariant=release
 maybeReleaseFlag=--release
