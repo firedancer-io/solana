@@ -1,13 +1,46 @@
-pub use goauth::scopes::Scope;
+// pub use goauth::scopes::Scope;
+#[derive(Debug, Clone)]
+pub enum Scope {
+    BigTableDataReadOnly,
+    BigTableData,
+}
+pub struct RSAKey;
+#[derive(Clone)]
+pub struct Credentials;
+impl Credentials {
+    pub fn from_file(_fp: &str) -> Result<Self, String> {
+        unimplemented!();
+    }
+
+    pub fn rsa_key(&self) -> Result<RSAKey, String> {
+        unimplemented!();
+    }
+
+    pub fn project(&self) -> ! {
+        unimplemented!();
+    }
+}
+impl FromStr for Credentials {
+    type Err = String;
+    fn from_str(_s: &str) -> Result<Self, String> {
+        unimplemented!();
+    }
+}
+pub struct Token;
+impl Token {
+    pub fn expires_in(&self) -> u32 {
+        unimplemented!();
+    }
+}
 /// A module for managing a Google API access token
 use {
     crate::CredentialType,
-    goauth::{
-        auth::{JwtClaims, Token},
-        credentials::Credentials,
-    },
+    // goauth::{
+    //     auth::{JwtClaims, Token},
+    //     credentials::Credentials,
+    // },
     log::*,
-    smpl_jwt::Jwt,
+    // smpl_jwt::Jwt,
     std::{
         str::FromStr,
         sync::{
@@ -69,25 +102,26 @@ impl AccessToken {
     }
 
     async fn get_token(
-        credentials: &Credentials,
-        scope: &Scope,
+        _credentials: &Credentials,
+        _scope: &Scope,
     ) -> Result<(Token, Instant), String> {
-        info!("Requesting token for {:?} scope", scope);
-        let claims = JwtClaims::new(
-            credentials.iss(),
-            scope,
-            credentials.token_uri(),
-            None,
-            None,
-        );
-        let jwt = Jwt::new(claims, credentials.rsa_key().unwrap(), None);
-
-        let token = goauth::get_token(&jwt, credentials)
-            .await
-            .map_err(|err| format!("Failed to refresh access token: {err}"))?;
-
-        info!("Token expires in {} seconds", token.expires_in());
-        Ok((token, Instant::now()))
+        unimplemented!();
+        // info!("Requesting token for {:?} scope", scope);
+        // let claims = JwtClaims::new(
+        //     credentials.iss(),
+        //     scope,
+        //     credentials.token_uri(),
+        //     None,
+        //     None,
+        // );
+        // let jwt = Jwt::new(claims, credentials.rsa_key().unwrap(), None);
+        // 
+        // let token = goauth::get_token(&jwt, credentials)
+        //     .await
+        //     .map_err(|err| format!("Failed to refresh access token: {err}"))?;
+        // 
+        // info!("Token expires in {} seconds", token.expires_in());
+        // Ok((token, Instant::now()))
     }
 
     /// Call this function regularly to ensure the access token does not expire
@@ -130,7 +164,8 @@ impl AccessToken {
 
     /// Return an access token suitable for use in an HTTP authorization header
     pub fn get(&self) -> String {
-        let token_r = self.token.read().unwrap();
-        format!("{} {}", token_r.0.token_type(), token_r.0.access_token())
+        unimplemented!();
+        // let token_r = self.token.read().unwrap();
+        // format!("{} {}", token_r.0.token_type(), token_r.0.access_token())
     }
 }
