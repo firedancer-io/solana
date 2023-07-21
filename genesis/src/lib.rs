@@ -3,6 +3,7 @@ pub mod address_generator;
 pub mod genesis_accounts;
 pub mod stakes;
 pub mod unlocks;
+pub mod main1;
 
 use serde::{Deserialize, Serialize};
 
