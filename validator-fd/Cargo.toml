@@ -1,0 +1,15 @@
+[package]
+name = "solana-validator-fd"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+solana-validator = { workspace = true }
+solana-genesis = { workspace = true }
