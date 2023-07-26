@@ -1047,6 +1047,15 @@ struct TestCase {
     expected_result: Result<(), InstructionError>,
 }
 
+fn bs58_encode<T: serde::Serialize,E>(val: Result<T,E>) -> String {
+    let res = match &val {
+        Ok(r) => bincode::serialize(r),
+        Err(_) => Ok(Vec::new())
+    };
+
+    bs58::encode(res.unwrap()).into_string()
+}
+
 pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut InvokeContext)>(
     loader_id: &Pubkey,
     mut program_indices: Vec<IndexOfAccount>,
@@ -1097,16 +1106,17 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
     invoke_context.programs_loaded_for_tx_batch = &programs_loaded_for_tx_batch;
     pre_adjustments(&mut invoke_context);
 
+    let sysvar_cache = invoke_context.get_sysvar_cache();
     let tsvc = TestSysvarCache {
-        clock: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_clock()).unwrap()).into_string(),
-        epoch_schedule: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_epoch_schedule()).unwrap()).into_string(),
-        epoch_rewards: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_epoch_rewards()).unwrap()).into_string(),
-        fees: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_fees()).unwrap()).into_string(),
-        rent: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_rent()).unwrap()).into_string(),
-        slot_hashes: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_slot_hashes()).unwrap()).into_string(),
-        recent_blockhashes: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_recent_blockhashes()).unwrap()).into_string(),
-        stake_history: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_stake_history()).unwrap()).into_string(),
-        last_restart_slot: bs58::encode(bincode::serialize(&invoke_context.get_sysvar_cache().get_last_restart_slot()).unwrap()).into_string(),
+        clock: bs58_encode(sysvar_cache.get_clock()),
+        epoch_schedule: bs58_encode(sysvar_cache.get_epoch_schedule()),
+        epoch_rewards: bs58_encode(sysvar_cache.get_epoch_rewards()),
+        fees: bs58_encode(sysvar_cache.get_fees()),
+        rent: bs58_encode(sysvar_cache.get_rent()),
+        slot_hashes: bs58_encode(sysvar_cache.get_slot_hashes()),
+        recent_blockhashes: bs58_encode(sysvar_cache.get_recent_blockhashes()),
+        stake_history: bs58_encode(sysvar_cache.get_stake_history()),
+        last_restart_slot: bs58_encode(sysvar_cache.get_last_restart_slot()),
     };
 
     let mainnet =
