@@ -169,8 +169,6 @@ use {
     },
 };
 
-use crate::serde_snapshot::newer::SerializableVersionedBank;
-use std::backtrace::Backtrace;
 use log::info;
 
 /// params to `verify_bank_hash`
@@ -1438,7 +1436,7 @@ impl Bank {
         reward_calc_tracer: Option<impl Fn(&RewardCalculationEvent) + Send + Sync>,
         new_bank_options: NewBankOptions,
     ) -> Self {
-        let bt = Backtrace::capture();
+        let bt = ""; // Backtrace::capture();
         info!("_new_from_parent collector_id: {} slot: {} bt: {}", collector_id, slot, bt);
 
         let mut time = Measure::start("bank::new_from_parent");
@@ -4720,7 +4718,7 @@ impl Bank {
               lamports_per_signature, support_set_compute_unit_price_ix,
               prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
 
-        let bt = Backtrace::capture();
+        let bt = ""; // Backtrace::capture();
         info!("calculate_fee bt: {}", bt);
         ret
     }
@@ -4786,7 +4784,7 @@ impl Bank {
               lamports_per_signature, support_set_compute_unit_price_ix,
               prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier, ret);
 
-        let bt = Backtrace::capture();
+        let bt = ""; // Backtrace::capture();
         info!("calculate_fee bt: {}", bt);
         ret
     }

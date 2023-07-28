@@ -6034,6 +6034,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "fnv",
+ "hex",
  "im",
  "index_list",
  "itertools",

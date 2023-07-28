@@ -71,7 +71,6 @@ use {
     },
 };
 
-use std::backtrace::Backtrace;
 use log::info;
 
 pub type PubkeyAccountSlot = (Pubkey, AccountSharedData, Slot);
@@ -258,7 +257,7 @@ impl Accounts {
         feature_set: &FeatureSet,
         account_overrides: Option<&AccountOverrides>,
     ) -> Result<LoadedTransaction> {
-        let bt = Backtrace::capture();
+        let bt = ""; //Backtrace::capture();
         info!("load_transaction fee: {} {:?}", fee, bt);
 
         let load_zero_lamports =

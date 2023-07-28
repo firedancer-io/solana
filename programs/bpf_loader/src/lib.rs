@@ -17,7 +17,7 @@ use {
         serialization::{deserialize_parameters, serialize_parameters},
         syscalls::SyscallError,
     },
-    log::{log_enabled, trace, info, Level::Trace},
+    log::{info},
     solana_measure::measure::Measure,
     solana_program_runtime::{
         executor_cache::Executor,
