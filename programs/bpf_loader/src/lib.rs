@@ -17,7 +17,7 @@ use {
         serialization::{deserialize_parameters, serialize_parameters},
         syscalls::SyscallError,
     },
-    log::{log_enabled, trace, Level::Trace},
+    log::{log_enabled, trace, info, Level::Trace},
     solana_measure::measure::Measure,
     solana_program_runtime::{
         executor_cache::Executor,
@@ -166,7 +166,7 @@ pub fn create_executor(
         enable_stack_frame_gaps: true,
         instruction_meter_checkpoint_distance: 10000,
         enable_instruction_meter: true,
-        enable_instruction_tracing: log_enabled!(Trace),
+        enable_instruction_tracing: true,
         enable_symbol_and_section_labels: false,
         disable_unresolved_symbols_at_runtime: invoke_context
             .feature_set
@@ -1351,14 +1351,14 @@ impl Executor for BpfExecutor {
                 before.saturating_sub(after),
                 before
             );
-            if log_enabled!(Trace) {
+//            if log_enabled!(Trace) {
                 let mut trace_buffer = Vec::<u8>::new();
                 let analysis =
                     Analysis::from_executable(self.verified_executable.get_executable()).unwrap();
                 vm.get_tracer().write(&mut trace_buffer, &analysis).unwrap();
                 let trace_string = String::from_utf8(trace_buffer).unwrap();
-                trace!("BPF Program Instruction Trace:\n{}", trace_string);
-            }
+                info!("BPF Program Instruction Trace:\n{}", trace_string);
+//            }
             drop(vm);
             let (_returned_from_program_id, return_data) =
                 invoke_context.transaction_context.get_return_data();

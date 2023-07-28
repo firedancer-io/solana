@@ -71,6 +71,9 @@ use {
     },
 };
 
+use std::backtrace::Backtrace;
+use log::info;
+
 pub type PubkeyAccountSlot = (Pubkey, AccountSharedData, Slot);
 
 #[derive(Debug, Default, AbiExample)]
@@ -255,6 +258,9 @@ impl Accounts {
         feature_set: &FeatureSet,
         account_overrides: Option<&AccountOverrides>,
     ) -> Result<LoadedTransaction> {
+        let bt = Backtrace::capture();
+        info!("load_transaction fee: {} {:?}", fee, bt);
+
         let load_zero_lamports =
             if feature_set.is_active(&return_none_for_zero_lamport_accounts::id()) {
                 LoadZeroLamports::None
