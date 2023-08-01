@@ -227,9 +227,6 @@ impl ReadableAccount for Account {
 
 impl WritableAccount for Account {
     fn set_lamports(&mut self, lamports: u64) {
-        let bt = ""; // Backtrace::capture();
-        info!("set_lamports() {} -> {}  {:?}", self.lamports, lamports, bt);
-
         self.lamports = lamports;
     }
     fn data_mut(&mut self) -> &mut Vec<u8> {
@@ -269,6 +266,9 @@ impl WritableAccount for Account {
 
 impl WritableAccount for AccountSharedData {
     fn set_lamports(&mut self, lamports: u64) {
+        let bt = Backtrace::capture();
+        info!("set_lamports() {} -> {}  {:?}", self.lamports, lamports, bt);
+
         self.lamports = lamports;
     }
     fn data_mut(&mut self) -> &mut Vec<u8> {
