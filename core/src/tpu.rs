@@ -2,6 +2,8 @@
 //! multi-stage transaction processing pipeline in software.
 
 pub use solana_sdk::net::DEFAULT_TPU_COALESCE;
+
+use crate::staked_nodes_updater_service::FdStake;
 use {
     crate::{
         banking_stage::BankingStage,
@@ -19,6 +21,16 @@ use {
         validator::GeneratorConfig,
     },
     crossbeam_channel::{unbounded, Receiver},
+    firedancer_sys::{
+        tango::fd_stake_join,
+        util::{
+            fd_pod_query_subpod,
+            fd_wksp_containing,
+            fd_wksp_pod_attach,
+            fd_wksp_pod_map,
+            fd_wksp_map
+        },
+    },
     solana_client::connection_cache::{ConnectionCache, Protocol},
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::{
@@ -43,6 +55,7 @@ use {
     },
     std::{
         collections::HashMap,
+        ffi::CString,
         net::UdpSocket,
         sync::{atomic::AtomicBool, Arc, RwLock},
         thread,
@@ -137,12 +150,22 @@ impl Tpu {
             Some(bank_forks.read().unwrap().get_vote_only_mode_signal()),
             tpu_enable_udp,
         );
-
+        // let pod_gaddr = CString::new("fd1_quic0.wksp:1047680").unwrap();
+        // let obj = unsafe { fd_wksp_map(pod_gaddr.as_ptr() as *const i8) };
+        let pod_gaddr_cstr = CString::new("fd1_quic0.wksp:1047680").unwrap();
+        let pod = unsafe { fd_wksp_pod_attach(pod_gaddr_cstr.as_ptr()) };
+        let stake_cstr = CString::new("stake").unwrap();
+        let fd_stake = unsafe { fd_stake_join(fd_wksp_pod_map(pod, stake_cstr.as_ptr() as *const i8)) };
+        if fd_stake.is_null() {
+            panic!("fd_stake_join failed");
+        }
+        // let fd_stake = std::ptr::null_mut();
         let staked_nodes_updater_service = StakedNodesUpdaterService::new(
             exit.clone(),
             bank_forks.clone(),
             staked_nodes.clone(),
             shared_staked_nodes_overrides,
+            FdStake(fd_stake),
         );
 
         let (non_vote_sender, non_vote_receiver) = banking_tracer.create_channel_non_vote();

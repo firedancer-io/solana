@@ -22,6 +22,7 @@ crossbeam-channel = { workspace = true }
 dashmap = { workspace = true, features = ["rayon", "raw-api"] }
 eager = { workspace = true }
 etcd-client = { workspace = true, features = ["tls"] }
+firedancer-sys = { path = "../../firedancer/ffi/rust/firedancer-sys" }
 histogram = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
