@@ -10,6 +10,7 @@ use {
         sysvar_cache::SysvarCache,
         timings::{ExecuteDetailsTimings, ExecuteTimings},
     },
+    base64::Engine,
     solana_measure::measure::Measure,
     solana_rbpf::{
         ebpf::MM_HEAP_START,
@@ -31,6 +32,7 @@ use {
         pubkey::Pubkey,
         rent::Rent,
         saturating_add_assign,
+        clock::Epoch,
         stable_layout::stable_instruction::StableInstruction,
         transaction_context::{
             IndexOfAccount, InstructionAccount, TransactionAccount, TransactionContext,
@@ -45,7 +47,22 @@ use {
     },
 };
 
+
 pub type BuiltinFunctionWithContext = BuiltinFunction<InvokeContext<'static>>;
+
+pub extern crate bs58;
+
+use std::{env, path::Path, fs::OpenOptions, io::Write};
+
+use std::backtrace::Backtrace;
+
+// use itertools::Itertools;
+use serde::Serialize;
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
+use std::str::FromStr;
+
+pub type ProcessInstructionWithContext = BuiltinFunction<InvokeContext<'static>>;
 
 /// Adapter so we can unify the interfaces of built-in programs and syscalls
 #[macro_export]
@@ -985,17 +1002,124 @@ macro_rules! with_mock_invoke_context {
     };
 }
 
+#[serde_as]
+#[derive(Serialize)]
+struct TestTransactionAccount {
+    #[serde_as(as = "DisplayFromStr")]
+    pubkey: Pubkey,
+    shared_data: TestAccountSharedData,
+}
+
+#[serde_with::serde_as]
+#[derive(Serialize)]
+struct TestAccountSharedData {
+    /// lamports in the account
+    lamports: u64,
+    /// data held in this account
+    #[serde(with = "hex_serde")]
+    data: Vec<u8>,
+    /// the program that owns this account. If executable, the program that loads this account.
+    #[serde_as(as = "DisplayFromStr")]
+    owner: Pubkey,
+    /// this account's data contains a loaded program (and is now read-only)
+    executable: bool,
+    /// the epoch at which this account will next owe rent
+    rent_epoch: Epoch,
+}
+
+#[serde_as]
+#[derive(Serialize)]
+struct TestInstructionAccount {
+    #[serde_as(as = "DisplayFromStr")]
+    pub index_in_transaction: u16,
+    pub index_in_caller: u16,
+    pub index_in_callee: u16,
+    pub is_signer: bool,
+    pub is_writable: bool,
+}
+
+#[serde_as]
+#[derive(Serialize)]
+pub struct TestSysvarCache {
+    clock: String,
+    epoch_schedule: String,
+    epoch_rewards: String,
+    fees: String,
+    rent: String,
+    slot_hashes: String,
+    recent_blockhashes: String,
+    stake_history: String,
+    last_restart_slot: String,
+}
+
+const HOME_DIR: &str = env!("HOME");
+
+#[serde_as]
+#[derive(Serialize)]
+struct TestCase {
+    name: String,
+    #[serde_as(as = "DisplayFromStr")]
+    program_id: Pubkey,
+    #[serde(with = "hex_serde")]
+    instruction_data: Vec<u8>,
+    feature_set: String,
+    sysvar_cache: TestSysvarCache,
+    backtrace: String,
+    transaction_accounts: Vec<TestTransactionAccount>,
+    resulting_accounts: Vec<TestAccountSharedData>,
+    instruction_accounts: Vec<TestInstructionAccount>,
+    expected_result: Result<(), InstructionError>,
+}
+
+impl TestCase {
+    fn print(&self, mainnet: bool) {
+        let mainnet_str = if mainnet {
+            "-mainnet"
+        } else {
+            ""
+        };
+        let pkg_name = match std::env::var("PKG_NAME") {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let path_str = format!("{}/firedancer-testbins/{}{}.json", HOME_DIR, pkg_name, mainnet_str);
+        let path = Path::new(path_str.as_str());
+
+        let mut file = match OpenOptions::new().append(true).create(true).open(&path) {
+            Err(_why) => return,
+            Ok(file) => file,
+        };
+        let s = serde_json::to_string(self).unwrap() + ",";
+        match file.write_all(s.as_bytes()) {
+            Err(_why) => return,
+            Ok(_) => (),
+        }
+    }
+}
+
+fn base64_encode<T: serde::Serialize,E>(val: Result<T,E>) -> String {
+    let res = match &val {
+        Ok(r) => bincode::serialize(r),
+        Err(_) => Ok(Vec::new())
+    };
+
+    base64::engine::general_purpose::STANDARD.encode(res.unwrap())
+}
+
 pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut InvokeContext)>(
     loader_id: &Pubkey,
     mut program_indices: Vec<IndexOfAccount>,
     instruction_data: &[u8],
     mut transaction_accounts: Vec<TransactionAccount>,
     instruction_account_metas: Vec<AccountMeta>,
-    expected_result: Result<(), InstructionError>,
+    mut expected_result: Result<(), InstructionError>,
     builtin_function: BuiltinFunctionWithContext,
     mut pre_adjustments: F,
     mut post_adjustments: G,
 ) -> Vec<AccountSharedData> {
+    let before : Vec<TestTransactionAccount> = transaction_accounts.clone().into_iter().map(|(pubkey, shared_data)| {
+        TestTransactionAccount { pubkey, shared_data: TestAccountSharedData { lamports: shared_data.lamports(), data: shared_data.data().to_vec(), owner: *shared_data.owner(), executable: shared_data.executable(), rent_epoch: shared_data.rent_epoch() } }
+    }).collect();
     let mut instruction_accounts: Vec<InstructionAccount> =
         Vec::with_capacity(instruction_account_metas.len());
     for (instruction_account_index, account_meta) in instruction_account_metas.iter().enumerate() {
@@ -1031,6 +1155,203 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
     );
     invoke_context.programs_loaded_for_tx_batch = &programs_loaded_for_tx_batch;
     pre_adjustments(&mut invoke_context);
+
+    let sysvar_cache = invoke_context.get_sysvar_cache();
+    let tsvc = TestSysvarCache {
+        clock: base64_encode(sysvar_cache.get_clock()),
+        epoch_schedule: base64_encode(sysvar_cache.get_epoch_schedule()),
+        epoch_rewards: base64_encode(sysvar_cache.get_epoch_rewards()),
+        fees: base64_encode(sysvar_cache.get_fees()),
+        rent: base64_encode(sysvar_cache.get_rent()),
+        slot_hashes: base64_encode(sysvar_cache.get_slot_hashes()),
+        recent_blockhashes: base64_encode(sysvar_cache.get_recent_blockhashes()),
+        stake_history: base64_encode(sysvar_cache.get_stake_history()),
+        last_restart_slot: base64_encode(sysvar_cache.get_last_restart_slot()),
+    };
+
+    let mainnet =
+    match env::var("MAINNET") {
+        Ok(_val) => true,
+        Err(_e) => false,
+    };
+
+    if mainnet {
+        match Arc::get_mut(&mut invoke_context.feature_set) {
+            // jq '.[] | .pubkey | "                nfs.deactivate(&Pubkey::from_str(\"\(.)\").unwrap());"' -r src/flamenco/features/feature_map.json
+            // oh solana labs ... oh josh ...
+            Some(nfs) => {
+                let active_features = nfs.active.iter().map(|(pubkey, _)| pubkey.clone()).collect::<Vec<_>>();
+                for feature in &active_features {
+                    nfs.deactivate(&feature);
+                }
+                nfs.activate(&Pubkey::from_str("GaBtBJvmS4Arjj5W1NmFcyvPjsHN38UGYDq2MDwbs9Qu").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4RWNif6C2WCNiKVW7otP4G7dkmkHGyKQWRpuZ1pxKU5m").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("DT4n6ABDqs6w4bnfwrXT9rsprcPf6cdDga1egctaPkLC").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BzBBveUDymEYoYzcMWNQCx3cd4jQs7puaVFHLtsbB6fm").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("7XRJcS5Ud5vxGB54JbK9N2vBZVwnwdBNeJW1ibRgD9gx").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("E5JiFDQCwyC6QfT9REFyMpfK2mHcmv1GUDySU1Ue7TYv").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4kpdyrcj5jS47CZb2oJGfVxjYbsMm2Kx97gFyZrxxwXz").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("D4jsDcXaqdW8tDAWn8H4R25Cdns2YwLneujSL1zvjW6R").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BL99GYhdjjcv6ys22C9wPgn2aTVERDbPHHo4NbS3hgp7").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3ccR6QpxGYsAbWyfevEtBNGfWV4xBffxRj2tD6A9i39F").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("6RvdSWHh8oh72Dp7wMTS2DBkf3fRPtChfNrAo3cZZoXJ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HTW2pSyErTj4BV6KBM9NZ9VBUJVxt7sacNWcf76wtzb3").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("EVW9B5xD9FFK7vw1SBARwMA4s5eRo5eKJdKpsBikzKBz").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BKCPBQQBZqggVnFso5nQ8rQ4RwwogYwjuUt9biBjxwNF").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("DhsYfRjxfnh2g7HKJYSzT79r74Afa1wbHkAgHndrA1oy").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("JAN1trEUEtZjgXYzNBYHU9DYd7GnThhXfFP7SzPXkPsG").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("meRgp4ArRPhD3KtCY9c5yAf2med7mBLsjKTPeVUHqBL").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("zk1snxsc6Fh3wsGNbbHAJNHiJoYgF29mMnTSusGx5EJ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3KZZ6Ks1885aGBQ45fwRcPXVBCtzUvxhUTkwKMR41Tca").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("8aXvSuopd1PUj7UhehfXJRg6619RHp8ZvwTyyJHdUYsj").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("54KAoNiUERNoWWUhTWWwXgym94gzoXFVnHyQwPA18V9A").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("H3kBSaKdeiUsyHmeHqjJYNc27jesXZ6zWj3zWkowQbkV").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("SAdVFw3RZvzbo6DvySbSdBnHN4gkzSTH9dSxesyKKPj").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BUS12ciZ5gCoFafUHWW8qaFMMtwFQGVxjsDheWLdqBE2").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3E3jV7v9VcdJL8iYZUMax9DiDno8j7EWUVbhm9RtShj2").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("6ppMXNYLhVd7GcsZ5uV11wQEW7spppiMVfqQv5SXhDpX").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("DwScAzPUjuv65TMbDnFY7AgwmotzWy3xpEJMXM3hZFaB").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("EBeznQDjcPG8491sFsKZYBi5S5jTVXMpAKNDJMQPS2kq").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("6uaHcKPGUy4J7emLBgUTeufhJdiwhngW6a1R9B7c2ob9").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HFpdDDNQjvcXnXKec697HDDsyk6tFoWS2o8fkxuhQZpL").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("75m6ysz33AfLA5DDEzWM1obBrnPQRSsdVQ2nRmc8Vuu1").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4ApgRX3ud6p7LNMJmsuaAcZY5HWctGPr5obAsjB3A54d").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("265hPS8k8xJ37ot82KEgjRunsUp5w4n4Q4VwwiN9i9ps").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HTTgmruMYRZEntyL3EdCDdnS6e4D5wRq1FA7kQsb66qq").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("C5fh68nJ7uyKAuYZg2x9sEQ5YrVf3dkW6oojNBSc3Jvo").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("CCu4boMmfLuqcmfTLPHQiUo22ZdUsXjgzPAURYaWt1Bw").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("2jXx2yDmGysmBKfKYNgLj2DQyAQv6mMk2BPh4eSbyB4H").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4d5AKtxoh93Dwm1vHXUU3iRATuMndx1c431KgT2td52r").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BiCU7M5w8ZCMykVSyhZ7Q3m2SWoR2qrEQ86ERcDX77ME").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Ftok2jhqAqxUWEiCVRrfRs9DPppWP8cgTB7NQNKL88mS").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("E8MkiWZNNPGU6n55jkGzyj8ghUmjCHRmDFdYYFYHxWhQ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("9kdtFSrXHQg3hKkbXkQ6trJ3Ja1xpJ22CTFSNAciEwmL").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("36PRUK2Dz6HWYdG9SpjeAsF5F3KxnFCakA2BZMbtMhSb").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("7txXZZD6Um59YoLMF7XUNimbMjsqsWhc7g2EniiTrmp1").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("EMX9Q7TVFAmQ9V1CggAkhMzhXSg8ECp7fHrWQX2G1chf").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Ff8b1fBeB86q8cjq47ZhsQLgv5EkHu3G1C99zjUfAzrq").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("capRxUrBjNkkCpjrJxPGfPaWijB7q3JoDfsWXAnt46r").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("CBkDroRDqm8HwHe6ak9cguPjUomrASEkfmxEaZ5CNNxz").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("BkFDxiJQWZXGTZaJQxH7wVEHkAmwCgSEVkrvswFfRJPD").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3gtZPqvPpsbXZVCx6hceMfWxtsmrjMzmg8C7PLKSxS2d").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("2h63t332mGCCsWK2nqqqHhN4U9ayyqhLVFvczznHDoTZ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("437r62HoAdUb63amq3D7ENnBLDhHT2xY8eFkLJYVKK4x").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3EPmAX94PvVJCjMeFfRFvj4avqCPL8vv3TGsZQg7ydMx").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("AVZS3ZsN4gi6Rkx2QUibYuSJG3S6QHib7xCYhG6vGJxU").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("FaTa4SpiaSNH44PGC4z8bnGVTkSRYaWvrBs3KTu8XQQq").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("ALBk3EWdeAg2WAGf6GPDUf1nynyNqCdEVmgouG7rpuCj").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("CFK1hRCNy8JJuAAY8Pb2GjLFNdCThS2qwZNe3izzBMgn").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Vo5siZ442SaZBKPXNocthiXysNviW4UYPwRFggmbgAp").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3XgNukcZWf9o3HdA3fpJbm94XFc4qpvTXc8h1wxYwiPi").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4yuaYAj2jGMGTh1sSmi4G2eFscsDq8qjugJXZoBN6YEa").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3aJdcZqxoLpSBxgeYGjPwaYS1zzcByxUDqJkbzWAH1Zb").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HyrbKftCdJ5CrUfEti6x26Cj7rZLNe32weugk7tLcWb8").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("nWBqjr3gpETbiaVj3CBJ3HFC5TMdnJDGt21hnvSTvVZ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("7g9EUwj4j7CS21Yx1wvgWLjSZeh5aPq8x9kpoPwXM8n8").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GTUMCZ8LTNxVfxdrw7ZsDFTxXb7TutYkzJnFwinpE6dg").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GmC19j9qLn2RFk5NduX6QXaDhVpGncVVBzyM8e9WMz2F").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("FQnc7U4koHqWgRvFaBJjZnV8VPg6L6wWK33yJeDp4yvV").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("St8k9dVXP97xT6faW24YmRSYConLbhsMJA4TJTBLmMT").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("8199Q2gMD2kwgfopK5qqVWuDbegLgpuFUFHCcUJQDN8b").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3NKRSwpySNwD3TvP5pHnRmkAQRsdkXWRr1WaQh8p4PWX").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4Di3y24QFLt5QEUPZtbnjyfQKfm6ZMTfa6Dw1psfoMKU").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("7GUcYgq4tVtaqNCKT3dho9r4665Qp5TxCZ27Qgjx3829").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("6iyggb5MTcsvdcugX7bEKbHV8c6jdLbpHwkncrgLMhfo").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HCnE3xQoZtDz9dSVm3jKwJXioTb6zMRbgwCmGg3PHHk8").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Ftok4njE8b7tDffYkC5bAbCaQv5sL6jispYrprzatUwN").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("FaTa17gVKoqbh38HcfiQonPsAaQViyDCCSg71AubYZw8").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("J2QdYx8crLbTVK8nur1jeLsmc3krDbfjoxoea2V1Uy5Q").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("9onWzzvCzNC2jfhxxeqRgs5q7nFAAKpCUvkj6T6GJK9i").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Ds87KVeqhbv7Jw8W6avsS1mqz3Mw5J3pRTpPoDQ2QdiJ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3BX6SBeEBibHaVQXywdkcgyUk6evfYZkHdztXiDtEpFS").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Gea3ZkK2N4pHuVZVxWcnAtS6UEDdyumdYt4pFcKjA3ar").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4EJQtF2pkRyawwcTVfQutzq4Sa5hRhibF6QAK1QXhtEX").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("CveezY6FDLVBToHDcvJRmtMouqzsmj4UXYh5ths5G5Uv").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("DpJREPyuMZ5nDfU6H3WTqSqUFSXAfw8u7xqmWtEwJDcP").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HxrEu1gXuH7iD3Puua1ohd5n4iUKJyFNtNxk9DVJkvgr").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3u3Er5Vc2jVcwz4xr2GJeSAXT3fAj6ADHZ4BJMZiScFd").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("6tRxEYKuy2L5nnv5bgn7iT28MxUbYxp5h7F3Ncf1exrT").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("qywiJyZmqTKspFg2LeuUHqcA5nNvBgobqb9UprywS9N").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HH3MUYReL2BvqqA3oEcAa7txju5GY6G4nxJ51zvsEjEZ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("8Zs9W7D9MpSEtUWSQdGniZk2cNmV22y6FLJwCx53asme").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("7Vced912WrRnfjaiKRiNBcbuFw7RrnLv3E3z95Y4GTNc").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("CGB2jM8pwZkeeiXQ66kBMyBR6Np61mggL7XUsmLjVcrw").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("812kqX67odAp5NFwM8D2N24cku7WTm9CHUTFUXaDkWPn").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("9k5ijzTbYPtjzu8wj2ErH9v45xecHzQ1x4PMYMMxFgdM").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("8sKQrMQoUHtQSUP83SPG4ta2JDjSAiWs7t5aJ9uEd6To").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("86HpNqzutEZwLcPxS6EHDcMNYWk6ikhteg9un7Y2PBKE").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("B9cdB55u4jQsDNsdTK525yE9dmSc5Ga7YBaBrDFvEhM9").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("CpkdQmspsaZZ8FVAouQTtTWZkc8eeQ7V3uj7dWz543rZ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("SVn36yVApPLYsa8koK3qUcy14zXDnqkNYWyUh1f4oK1").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("5wAGiy15X1Jb2hkHnPDCM8oB9V42VNA9ftNVFK84dEgv").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("EYVpEP7uzH1CoXzbD6PubGhYmnxRXPeq3PPsm1ba3gpo").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("G74BkWBzmsByZ1kxHy44H3wjwp5hp7JbrGRuDpco22tY").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("9gxu85LYRAcZL38We8MYJ4A9AwgBBPtVBAqebMcT1241").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("5GpmAKxaGsWWbPp4bNXFLJxZVvG92ctxf7jQnzTQjF3n").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("EfhYd3SafzGT472tYQDUc4dPd2xdEfKs5fwkowUgVt4W").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("DTVTkmw3JSofd8CJVJte8PXEbxNQ2yZijvVr3pe2APPj").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GQALDaC48fEhZGWRj9iL5Q889emJKcj3aCvHF7VCbbF4").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("5x3825XS7M2A3Ekbn5VGGkvFoAg5qrRWkTrY4bARP1GL").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("A16q37opZdQMCbe5qJ6xpBB9usykfv8jZaMkxvZQi4GJ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("J4HFT8usBxpcF63y46t1upYobJgChmKyZPm5uTBRg25Z").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("noRuG2kzACwgaY7TVmLRnUNPLKNVQE1fb7X55YWBehp").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("D31EFnLgdiysi84Woo3of4JMu7VmasUS3Z7j9HYXCeLY").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Gz1aLrbeQ4Q6PTSafCZcGWZXz91yVRi7ASFzFEr1U4sa").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("84zy5N23Q9vTZuLc9h1HWUtyM9yCFV2SCmyP9W9C3yHZ").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HyNQzc7TMNmRhpVHXqDGjpsHzeQie82mDQXSF9hj7nAH").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("74CoWuBmt3rUVUrCb2JiSTvh6nXyBWUsK4SaMj3CtE3T").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("3uFHb9oKdGfgZGJK9EHaAXN4USvnQtAFC13Fh5gGFS5B").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("EBq48m8irRKuE7ZnMTLvLg2UuGSqhe8s8oMqnmja1fJw").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("4UDcAfQ6EcA6bdcadkeHpkarkhZGJ7Bpq7wTAiRMjkoi").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("DdLwVYuvDz26JohmgSbA7mjpJFgX5zP2dkp8qsF2C33V").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("A8xyMHZovGXFkorFqEmVH2PKGLiBip5JD7jt4zsUWo4H").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Hr1nUA9b7NJ6eChS26o7Vi8gYYDDwWD3YeBfzJkTbU86").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("9gwzizfABsKUereT6phZZxbTzuAnovkgwpVVpdcSxv9h").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("2HmTkCj9tXuPE4ueHzdD7jPeMf9JGCoZh5AsyoATiWEe").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("EaQpmC6GtRssaZ3PCUM5YksGqUdMLeZ46BQXYtHYakDS").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("8pgXCMNXC8qyEFypuwpXyRxLXZdpM4Qo72gJ6k87A6wL").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("5ZCcFAzJ1zsFKe1KSZa9K92jhx7gkcKj97ci2DBo1vwj").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("16FMCmgLzCNNz6eTwGanbyN2ZxvTBSLuQ6DZhgeMshg").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("Bj2jmUsM2iRhfdLLDSTkhM5UQRQvQHm57HSmPibPtEyu").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("7axKe5BTYBDD87ftzWbk5DfzWMGyRvqmWTduuo22Yaqy").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("5Pecy6ie6XGm22pc9d4P9W5c31BugcFBuy6hsP2zkETv").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("HooKD5NC9QNxk25QuzCssB8ecrEzGt6eXEPBUxWp1LaR").unwrap(), 0);
+                nfs.activate(&Pubkey::from_str("GwtDQBghCTBgmX2cpEGNPxTEBUTQRaDMGTr5qychdGMj").unwrap(), 0);
+            },
+            None => {},
+        }
+    }
+
+    let fs = (&serde_json::to_string(&invoke_context.feature_set.inactive).unwrap()).to_string();
+
     let result = invoke_context.process_instruction(
         instruction_data,
         &instruction_accounts,
@@ -1038,10 +1359,40 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
         &mut 0,
         &mut ExecuteTimings::default(),
     );
-    assert_eq!(result, expected_result);
+    if mainnet  {
+        expected_result = result;
+    } else {
+        assert_eq!(result, expected_result);
+    }
     post_adjustments(&mut invoke_context);
     let mut transaction_accounts = transaction_context.deconstruct_without_keys().unwrap();
     transaction_accounts.pop();
+
+    let bts = Backtrace::capture().to_string();
+    let test_case = TestCase {
+        name: std::thread::current().name().unwrap().to_string(),
+        program_id: loader_id.clone(),
+        backtrace: bts,
+        feature_set: fs,
+        sysvar_cache: tsvc,
+        instruction_data: Vec::from(instruction_data),
+        transaction_accounts: before,
+        resulting_accounts: transaction_accounts.clone().into_iter().map(|shared_data| {
+            TestAccountSharedData { lamports: shared_data.lamports(), data: shared_data.data().to_vec(), owner: *shared_data.owner(), executable: shared_data.executable(), rent_epoch: shared_data.rent_epoch() }
+        }).collect(),
+        instruction_accounts: instruction_accounts.clone().into_iter().map(|acc_meta| {
+            TestInstructionAccount {
+                index_in_transaction: acc_meta.index_in_transaction,
+                index_in_caller: acc_meta.index_in_caller,
+                index_in_callee: acc_meta.index_in_callee,
+                is_signer: acc_meta.is_signer,
+                is_writable: acc_meta.is_writable }
+        }).collect(),
+        expected_result: expected_result.clone(),
+    };
+    test_case.print(mainnet);
+    // println!("test_case_json {}", serde_json::to_string(&).unwrap());
+
     transaction_accounts
 }
 
