@@ -3775,6 +3775,9 @@ impl Bank {
             self.freeze_started.store(true, Relaxed);
             *hash = self.hash_internal_state();
             self.rc.accounts.accounts_db.mark_slot_frozen(self.slot());
+
+            drop(hash);
+            let _ = bank_hash_details::write_bank_hash_details_file(&self);
         }
     }
 
@@ -3850,10 +3853,13 @@ impl Bank {
 
         // Make sure to activate the account_hash_ignore_slot feature
         // before calculating any account hashes.
+        // TODO should also check feature activation slot here, in case
+        //      it's scheduled for the future.
         if genesis_config
             .accounts
             .iter()
-            .any(|(pubkey, _)| pubkey == &feature_set::account_hash_ignore_slot::id())
+            .find(|(pubkey, _)| **pubkey == feature_set::account_hash_ignore_slot::id())
+            .is_some()
         {
             self.activate_feature(&feature_set::account_hash_ignore_slot::id());
         }
@@ -7009,7 +7015,8 @@ impl Bank {
             .get_bank_hash_stats(slot)
             .expect("No bank hash stats were found for this bank, that should not be possible");
         info!(
-            "bank frozen: {slot} hash: {hash} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}{}, stats: {bank_hash_stats:?}",
+            "bank frozen: {slot} hash: {hash} parent_hash: {} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}{}, stats: {bank_hash_stats:?}",
+            self.parent_hash,
             accounts_delta_hash.0,
             self.signature_count(),
             self.last_blockhash(),
