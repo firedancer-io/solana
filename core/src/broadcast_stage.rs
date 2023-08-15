@@ -1,5 +1,7 @@
 //! A stage to broadcast data from a leader node to validators
 #![allow(clippy::rc_buffer)]
+
+use self::firedancer_broadcast_run::FiredancerBroadcastRun;
 use {
     self::{
         broadcast_duplicates_run::{BroadcastDuplicatesConfig, BroadcastDuplicatesRun},
@@ -52,6 +54,7 @@ pub mod broadcast_metrics;
 pub(crate) mod broadcast_utils;
 mod fail_entry_verification_broadcast_run;
 mod standard_broadcast_run;
+mod firedancer_broadcast_run;
 
 const CLUSTER_NODES_CACHE_NUM_EPOCH_CAP: usize = 8;
 const CLUSTER_NODES_CACHE_TTL: Duration = Duration::from_secs(5);
@@ -73,6 +76,7 @@ pub enum BroadcastStageType {
     FailEntryVerification,
     BroadcastFakeShreds,
     BroadcastDuplicates(BroadcastDuplicatesConfig),
+    Firedancer(String)
 }
 
 impl BroadcastStageType {
@@ -132,6 +136,17 @@ impl BroadcastStageType {
                 bank_forks,
                 BroadcastDuplicatesRun::new(shred_version, config.clone()),
             ),
+
+            BroadcastStageType::Firedancer(fd_app_name) => BroadcastStage::new(
+                sock,
+                cluster_info,
+                receiver,
+                retransmit_slots_receiver,
+                exit_sender,
+                blockstore,
+                bank_forks,
+                FiredancerBroadcastRun::new(shred_version, fd_app_name)
+            )
         }
     }
 }
