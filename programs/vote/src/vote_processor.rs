@@ -321,7 +321,7 @@ mod tests {
     }
 
     fn create_default_account() -> AccountSharedData {
-        AccountSharedData::new(0, 0, &Pubkey::new_unique())
+        AccountSharedData::new(0, 0, &Pubkey::from_str("5JJHvTL5d9UaucY3M1hr78Z2X646Htotfq5DCVru2qqg").unwrap())
     }
 
     fn process_instruction(
@@ -456,12 +456,12 @@ mod tests {
     }
 
     fn create_test_account_with_authorized_from_seed() -> VoteAccountTestFixtureWithAuthorities {
-        let vote_pubkey = Pubkey::new_unique();
-        let voter_base_key = Pubkey::new_unique();
-        let voter_owner = Pubkey::new_unique();
+        let vote_pubkey = Pubkey::from_str("HyJF4js2CiaeofAqgnK2nmRjm5xdYSH6s2QgQ9nMHSWq").unwrap();
+        let voter_base_key = Pubkey::from_str("A1rfRmpPH7ApNS31P9PqQbeSuNFXk4qKMcQ74tGww6bE").unwrap();
+        let voter_owner = Pubkey::from_str("3Ezuf8Dim6ahoTThdqZxpjQRG4MPAww1pnXWK2g7f2YZ").unwrap();
         let voter_seed = String::from("VOTER_SEED");
-        let withdrawer_base_key = Pubkey::new_unique();
-        let withdrawer_owner = Pubkey::new_unique();
+        let withdrawer_base_key = Pubkey::from_str("4bATmHoLhx51oEyoxKEJfbVnPZrZgYgVDoY7zdGBZxgk").unwrap();
+        let withdrawer_owner = Pubkey::from_str("5rLH84kGn8Z9rBdbAMpiYKGHTAq1XLF6hqZu66y4wNGn").unwrap();
         let withdrawer_seed = String::from("WITHDRAWER_SEED");
         let authorized_voter =
             Pubkey::create_with_seed(&voter_base_key, voter_seed.as_str(), &voter_owner).unwrap();
@@ -474,7 +474,7 @@ mod tests {
 
         VoteAccountTestFixtureWithAuthorities {
             vote_account: vote_state::create_account_with_authorized(
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("8bLj7Kp1vRQCJvHd8GLz4UqJaRobiPYAQfdkSiyn4vmm").unwrap(),
                 &authorized_voter,
                 &authorized_withdrawer,
                 0,
@@ -1346,7 +1346,7 @@ mod tests {
             &serialize(&VoteInstruction::AuthorizeWithSeed(
                 VoteAuthorizeWithSeedArgs {
                     authorization_type,
-                    current_authority_derived_key_owner: Pubkey::new_unique(), // Wrong owner.
+                    current_authority_derived_key_owner: Pubkey::from_str("51suyUL6kyydvLN3m9oT6dvDJZ6vk5tziSbBadKN5rpJ").unwrap(), // Wrong owner.
                     current_authority_derived_key_seed: current_authority_seed.clone(),
                     new_authority: new_authority_pubkey,
                 },
@@ -1472,7 +1472,7 @@ mod tests {
             &serialize(&VoteInstruction::AuthorizeCheckedWithSeed(
                 VoteAuthorizeCheckedWithSeedArgs {
                     authorization_type,
-                    current_authority_derived_key_owner: Pubkey::new_unique(), // Wrong owner.
+                    current_authority_derived_key_owner: Pubkey::from_str("9fVjdoQJgExa5BGhcHsMoy5jtHJ743o9epsnXLFh6BGc").unwrap(), // Wrong owner.
                     current_authority_derived_key_seed: current_authority_seed.clone(),
                 },
             ))
@@ -1508,7 +1508,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_voter_pubkey = Pubkey::new_unique();
+        let new_voter_pubkey = Pubkey::from_str("EfrXmzrqcqAA3AEmHfLKRym1WTTNrVNgRtALfjJmAT8W").unwrap();
         perform_authorize_with_seed_test(
             VoteAuthorize::Voter,
             vote_pubkey,
@@ -1530,7 +1530,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_voter_pubkey = Pubkey::new_unique();
+        let new_voter_pubkey = Pubkey::from_str("5sVtSWrXmYNkjFGN8c6icuwQw6K8nBrPoPaJYJ3df5jA").unwrap();
         perform_authorize_with_seed_test(
             VoteAuthorize::Voter,
             vote_pubkey,
@@ -1552,7 +1552,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_withdrawer_pubkey = Pubkey::new_unique();
+        let new_withdrawer_pubkey = Pubkey::from_str("Fi2Z3SciQx8iuicSxbme9uX8zboUWf8GD4zpGJpQmsdN").unwrap();
         let clock = Clock {
             epoch: 1,
             leader_schedule_epoch: 2,
@@ -1608,7 +1608,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_withdrawer_pubkey = Pubkey::new_unique();
+        let new_withdrawer_pubkey = Pubkey::from_str("Ec2d47GnvAPtMN18UorEM5XQGwRb78uDzWDtbRfVpi8B").unwrap();
         perform_authorize_with_seed_test(
             VoteAuthorize::Withdrawer,
             vote_pubkey,
@@ -1630,7 +1630,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_voter_pubkey = Pubkey::new_unique();
+        let new_voter_pubkey = Pubkey::from_str("oY3SRszRhQNdBBR1Z2yF8udQftg3Aq4soDUyczMQxpH").unwrap();
         perform_authorize_checked_with_seed_test(
             VoteAuthorize::Voter,
             vote_pubkey,
@@ -1652,7 +1652,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_voter_pubkey = Pubkey::new_unique();
+        let new_voter_pubkey = Pubkey::from_str("7RqJbecvzm9Z6T4QfRy3cmHA4xEqZxiiK7KcCD8w894A").unwrap();
         perform_authorize_checked_with_seed_test(
             VoteAuthorize::Voter,
             vote_pubkey,
@@ -1674,7 +1674,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_withdrawer_pubkey = Pubkey::new_unique();
+        let new_withdrawer_pubkey = Pubkey::from_str("5mTzdxowmryp5uZMVJKAQWPB1VK3cZAyZZWnUAVM6WCT").unwrap();
         let clock = Clock {
             epoch: 1,
             leader_schedule_epoch: 2,
@@ -1735,7 +1735,7 @@ mod tests {
             vote_account,
             ..
         } = create_test_account_with_authorized_from_seed();
-        let new_withdrawer_pubkey = Pubkey::new_unique();
+        let new_withdrawer_pubkey = Pubkey::from_str("FDnUFUWw4WCmBSGkbWsTZn3CkQVMB1UxJfYHyrAgKg5d").unwrap();
         perform_authorize_checked_with_seed_test(
             VoteAuthorize::Withdrawer,
             vote_pubkey,
@@ -1752,7 +1752,7 @@ mod tests {
         process_instruction_as_one_arg(
             &vote(
                 &invalid_vote_state_pubkey(),
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("J1sZkRdWLFCnxeJRwLm2VjULYNzj3nSgFyeKU5Q9tpqJ").unwrap(),
                 Vote::default(),
             ),
             Err(InstructionError::InvalidAccountOwner),
@@ -1777,8 +1777,8 @@ mod tests {
 
     #[test]
     fn test_create_account_vote_state_1_14_11() {
-        let node_pubkey = Pubkey::new_unique();
-        let vote_pubkey = Pubkey::new_unique();
+        let node_pubkey = Pubkey::from_str("7jTUsKGrHq4ke42oQgfPPEEGKAf1MxYckZSXFq1wPUo9").unwrap();
+        let vote_pubkey = Pubkey::from_str("DLxAmo8JiJtrtE8Ke8wkvdJy7NqrPfx9j9tYZERmFYMq").unwrap();
         let instructions = create_account_with_config(
             &node_pubkey,
             &vote_pubkey,
@@ -1823,8 +1823,8 @@ mod tests {
 
     #[test]
     fn test_create_account_vote_state_current() {
-        let node_pubkey = Pubkey::new_unique();
-        let vote_pubkey = Pubkey::new_unique();
+        let node_pubkey = Pubkey::from_str("2pNmJhKztHK5xj1asxzjE6CMYSAwuGM9SMBrNB4pBGoq").unwrap();
+        let vote_pubkey = Pubkey::from_str("FMwkU1u8MD4njoesnRsYxD9rsgG5RJas4hQsQVNqBzGB").unwrap();
         let instructions = create_account_with_config(
             &node_pubkey,
             &vote_pubkey,
@@ -1874,8 +1874,8 @@ mod tests {
     fn test_vote_process_instruction() {
         solana_logger::setup();
         let instructions = create_account_with_config(
-            &Pubkey::new_unique(),
-            &Pubkey::new_unique(),
+            &Pubkey::from_str("GDrMJBghPDPBfX9i4EcBPzVpEdXda3fSSaxSuhuHf2e9").unwrap(),
+            &Pubkey::from_str("4DXphnUBf4FemUqUhiY8VLrTpUBPnw5HNYxAkKRn1Vmf").unwrap(),
             &VoteInit::default(),
             101,
             CreateVoteAccountConfig::default(),
@@ -1885,16 +1885,16 @@ mod tests {
         process_instruction_as_one_arg(&instructions[1], Err(InstructionError::InvalidAccountData));
         process_instruction_as_one_arg(
             &vote(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("97P14PTxPXFCFFdHYM9fo6qcQRG9XWrFV9KowJBr6MW2").unwrap(),
+                &Pubkey::from_str("69CuLZKKLwjmj93VfVednEhq7ptVAfobGtDTUCiUcxJg").unwrap(),
                 Vote::default(),
             ),
             Err(InstructionError::InvalidAccountData),
         );
         process_instruction_as_one_arg(
             &vote_switch(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("GaAf48s9Qq9TkoE4Jj1BBwu693PJzCvRNiJLSdqYyWkR").unwrap(),
+                &Pubkey::from_str("A7wmKsFYZSKKXyfh75wm48YhATxYAqMBPSSipUBqcp7L").unwrap(),
                 Vote::default(),
                 Hash::default(),
             ),
@@ -1902,9 +1902,9 @@ mod tests {
         );
         process_instruction_as_one_arg(
             &authorize(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("kQjxVNmxVYNyiwmMMAYFaXEPJNErsZnfZ9Vi7KxwBdF").unwrap(),
+                &Pubkey::from_str("FXnpLEUVLE4s37tpYsFk5FUN8Q47JGyVha58WTvyi6yJ").unwrap(),
+                &Pubkey::from_str("Hyc4WDm86yu5KQM3HvbM8yi4bN1brwscTGvGKCfXseDP").unwrap(),
                 VoteAuthorize::Voter,
             ),
             Err(InstructionError::InvalidAccountData),
@@ -1948,23 +1948,23 @@ mod tests {
 
         process_instruction_as_one_arg(
             &update_validator_identity(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("SJCewEheVjkSMomEmfv6FA8srqWLCsGFeadtjxB5SWJ").unwrap(),
+                &Pubkey::from_str("A2t8rCxtK7VSUPKmx5K3XKsBdteBBUq8ieDwiRVUGzZj").unwrap(),
+                &Pubkey::from_str("GFbcYejw9Cb2THPP25deFtcPaVpwjy1PdypcsMJEQEFK").unwrap(),
             ),
             Err(InstructionError::InvalidAccountData),
         );
         process_instruction_as_one_arg(
-            &update_commission(&Pubkey::new_unique(), &Pubkey::new_unique(), 0),
+            &update_commission(&Pubkey::from_str("4dYX5E5WCh8dRM4NuSLNojnGnoCzHM2V1gzpsqGpAd41").unwrap(), &Pubkey::from_str("ETW3e2zSHmVYqEVwoUxhcdtYBCC4K8wzu3C9q4tnpXkm").unwrap(), 0),
             Err(InstructionError::InvalidAccountData),
         );
 
         process_instruction_as_one_arg(
             &withdraw(
-                &Pubkey::new_unique(),
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("AzMFcgxUm3bsEMjwmD1NDNhMjje6oF3BbGaX1eyS6Q23").unwrap(),
+                &Pubkey::from_str("3Rokc68ViqWhbVrU1Z82A58gcFDSAPCHha6RKHzCwYDd").unwrap(),
                 0,
-                &Pubkey::new_unique(),
+                &Pubkey::from_str("F4kKBSVLMkQRDPvty9TrL7pnKEidmduiqMf8z1yz5i1g").unwrap(),
             ),
             Err(InstructionError::InvalidAccountData),
         );
@@ -1972,9 +1972,9 @@ mod tests {
 
     #[test]
     fn test_vote_authorize_checked() {
-        let vote_pubkey = Pubkey::new_unique();
-        let authorized_pubkey = Pubkey::new_unique();
-        let new_authorized_pubkey = Pubkey::new_unique();
+        let vote_pubkey = Pubkey::from_str("CZN5jGN99LaBM4pjXkzdMEKCJDDYaUHuHJRRFWhR2hhp").unwrap();
+        let authorized_pubkey = Pubkey::from_str("4aChrhz4CrKdBzF9bkC5sktLmySEyeXVUuMgK4BRFQsk").unwrap();
+        let new_authorized_pubkey = Pubkey::from_str("Fy5zmHibh1bVhsmFpWVAoH48uwLFVwE1WavQVY5eiALr").unwrap();
 
         // Test with vanilla authorize accounts
         let mut instruction = authorize_checked(

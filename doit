@@ -13,3 +13,6 @@ export PKG_CONFIG_PATH
 # ./cargo nightly test --package solana-runtime --lib -- system_instruction_processor::tests --nocapture
 
 # /home/jsiegel/repos/solana/target/debug/deps/solana_runtime-13b3b7db3fedc08a 'system_instruction_processor::tests' --nocapture
+
+
+# cargo test --package solana-vote-program perform_authorize_checked_with_seed_test -- --nocapture
