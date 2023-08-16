@@ -7448,6 +7448,7 @@ dependencies = [
  "log",
  "num-derive 0.3.3",
  "num-traits",
+ "rand 0.7.3",
  "rustc_version 0.4.0",
  "serde",
  "serde_derive",

@@ -34,10 +34,6 @@ pushd programs/system
   ~/repos/solana/cargo test --package solana-system-program --lib -- --nocapture |& grep test_case_json  | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort -u > ~/repos/firedancer-testbins/solana-system-program.json
 popd
 
-pushd programs/vote
-  ~/repos/solana/cargo test --package solana-vote-program --lib -- --nocapture |& grep test_case_json  | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort -u > ~/repos/firedancer-testbins/solana-vote-program.json
-popd
-
 pushd programs/zk-token-proof
   ~/repos/solana/cargo test --package solana-zk-token-proof-program --lib -- --nocapture |& grep test_case_json  | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort -u > ~/repos/firedancer-testbins/solana-zk-token-proof-program.json
 popd
