@@ -59,7 +59,7 @@ use {
         rc::Rc,
         sync::{atomic::Ordering, Arc},
     },
-    syscalls::create_program_runtime_environment,
+    syscalls::create_program_runtime_environment_v1,
 };
 
 pub const DEFAULT_LOADER_COMPUTE_UNITS: u64 = 570;
@@ -99,24 +99,12 @@ pub fn load_program_from_bytes(
     Ok(loaded_program)
 }
 
-fn find_program_in_cache(
-    invoke_context: &InvokeContext,
-    pubkey: &Pubkey,
-) -> Option<Arc<LoadedProgram>> {
-    // First lookup the cache of the programs modified by the current transaction. If not found, lookup
-    // the cache of the cache of the programs that are loaded for the transaction batch.
-    invoke_context
-        .programs_modified_by_tx
-        .find(pubkey)
-        .or_else(|| invoke_context.programs_loaded_for_tx_batch.find(pubkey))
-}
-
 macro_rules! deploy_program {
     ($invoke_context:expr, $program_id:expr, $loader_key:expr,
      $account_size:expr, $slot:expr, $drop:expr, $new_programdata:expr $(,)?) => {{
         let mut load_program_metrics = LoadProgramMetrics::default();
         let mut register_syscalls_time = Measure::start("register_syscalls_time");
-        let program_runtime_environment = create_program_runtime_environment(
+        let program_runtime_environment = create_program_runtime_environment_v1(
             &$invoke_context.feature_set,
             $invoke_context.get_compute_budget(),
             true, /* deployment */
@@ -137,7 +125,7 @@ macro_rules! deploy_program {
             $slot,
             Arc::new(program_runtime_environment),
         )?;
-        if let Some(old_entry) = find_program_in_cache($invoke_context, &$program_id) {
+        if let Some(old_entry) = $invoke_context.find_program_in_cache(&$program_id) {
             executor.tx_usage_counter.store(
                 old_entry.tx_usage_counter.load(Ordering::Relaxed),
                 Ordering::Relaxed
@@ -507,7 +495,8 @@ fn process_instruction_inner(
     }
 
     let mut get_or_create_executor_time = Measure::start("get_or_create_executor_time");
-    let executor = find_program_in_cache(invoke_context, program_account.get_key())
+    let executor = invoke_context
+        .find_program_in_cache(program_account.get_key())
         .ok_or(InstructionError::InvalidAccountData)?;
 
     if executor.is_tombstone() {
@@ -1654,7 +1643,7 @@ pub mod test_utils {
 
     pub fn load_all_invoked_programs(invoke_context: &mut InvokeContext) {
         let mut load_program_metrics = LoadProgramMetrics::default();
-        let program_runtime_environment = create_program_runtime_environment(
+        let program_runtime_environment = create_program_runtime_environment_v1(
             &invoke_context.feature_set,
             invoke_context.get_compute_budget(),
             false, /* deployment */

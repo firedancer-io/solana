@@ -6,7 +6,7 @@ use {
     serde_json::Result,
     solana_bpf_loader_program::{
         create_vm, load_program_from_bytes, serialization::serialize_parameters,
-        syscalls::create_program_runtime_environment,
+        syscalls::create_program_runtime_environment_v1,
     },
     solana_clap_utils::input_parsers::pubkeys_of,
     solana_ledger::{
@@ -346,7 +346,7 @@ fn load_program<'a>(
         ..LoadProgramMetrics::default()
     };
     let account_size = contents.len();
-    let program_runtime_environment = create_program_runtime_environment(
+    let program_runtime_environment = create_program_runtime_environment_v1(
         &invoke_context.feature_set,
         invoke_context.get_compute_budget(),
         false, /* deployment */
@@ -536,8 +536,14 @@ pub fn program(ledger_path: &Path, matches: &ArgMatches<'_>) {
     with_mock_invoke_context!(invoke_context, transaction_context, transaction_accounts);
 
     // Adding `DELAY_VISIBILITY_SLOT_OFFSET` to slots to accommodate for delay visibility of the program
-    let mut loaded_programs =
-        LoadedProgramsForTxBatch::new(bank.slot() + DELAY_VISIBILITY_SLOT_OFFSET);
+    let mut loaded_programs = LoadedProgramsForTxBatch::new(
+        bank.slot() + DELAY_VISIBILITY_SLOT_OFFSET,
+        bank.loaded_programs_cache
+            .read()
+            .unwrap()
+            .environments
+            .clone(),
+    );
     for key in cached_account_keys {
         loaded_programs.replenish(key, bank.load_program(&key));
         debug!("Loaded program {}", key);
