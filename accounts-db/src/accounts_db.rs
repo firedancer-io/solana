@@ -33,7 +33,7 @@ use {
         accounts_cache::{AccountsCache, CachedAccount, SlotCache},
         accounts_file::{AccountsFile, AccountsFileError},
         accounts_hash::{
-            AccountsDeltaHash, AccountsHash, AccountsHashEnum, AccountsHasher,
+            AccountsDeltaHash, AccountsHash, AccountsHashKind, AccountsHasher,
             CalcAccountsHashConfig, CalculateHashIntermediate, HashStats, IncrementalAccountsHash,
             SerdeAccountsDeltaHash, SerdeAccountsHash, SerdeIncrementalAccountsHash,
             ZeroLamportAccounts,
@@ -57,7 +57,7 @@ use {
             aligned_stored_size, AppendVec, MatchAccountOwnerError, APPEND_VEC_MMAPPED_FILES_OPEN,
             STORE_META_OVERHEAD,
         },
-        cache_hash_data::{CacheHashData, CacheHashDataFile},
+        cache_hash_data::{CacheHashData, CacheHashDataFileReference},
         contains::Contains,
         epoch_accounts_hash::EpochAccountsHashManager,
         partitioned_rewards::{PartitionedEpochRewardsConfig, TestPartitionedEpochRewards},
@@ -4500,7 +4500,7 @@ impl AccountsDb {
             } else {
                 false
             };
-            if is_candidate || (can_randomly_shrink && thread_rng().gen_range(0, 10000) == 0) {
+            if is_candidate || (can_randomly_shrink && thread_rng().gen_range(0..10000) == 0) {
                 // we are a candidate for shrink, so either append us to the previous append vec
                 // or recreate us as a new append vec and eliminate the dead accounts
                 info!(
@@ -5712,7 +5712,7 @@ impl AccountsDb {
         self.stats
             .create_store_count
             .fetch_add(1, Ordering::Relaxed);
-        let path_index = thread_rng().gen_range(0, paths.len());
+        let path_index = thread_rng().gen_range(0..paths.len());
         let store = Arc::new(self.new_storage_entry(
             slot,
             Path::new(&paths[path_index]),
@@ -7184,7 +7184,7 @@ impl AccountsDb {
     }
 
     /// Scan through all the account storage in parallel.
-    /// Returns a Vec of open/mmapped files.
+    /// Returns a Vec of opened files.
     /// Each file has serialized hash info, sorted by pubkey and then slot, from scanning the append vecs.
     ///   A single pubkey could be in multiple entries. The pubkey found in the latest entry is the one to use.
     fn scan_account_storage_no_bank<S>(
@@ -7195,7 +7195,7 @@ impl AccountsDb {
         scanner: S,
         bin_range: &Range<usize>,
         stats: &mut HashStats,
-    ) -> Vec<CacheHashDataFile>
+    ) -> Vec<CacheHashDataFileReference>
     where
         S: AppendVecScan,
     {
@@ -7251,7 +7251,9 @@ impl AccountsDb {
                         hash
                     );
                     if load_from_cache {
-                        if let Ok(mapped_file) = cache_hash_data.load_map(&file_name) {
+                        if let Ok(mapped_file) =
+                            cache_hash_data.get_file_reference_to_map_later(&file_name)
+                        {
                             return Some(mapped_file);
                         }
                     }
@@ -7291,7 +7293,9 @@ impl AccountsDb {
                         (!r.is_empty() && r.iter().any(|b| !b.is_empty())).then(|| {
                             // error if we can't write this
                             cache_hash_data.save(&file_name, &r).unwrap();
-                            cache_hash_data.load_map(&file_name).unwrap()
+                            cache_hash_data
+                                .get_file_reference_to_map_later(&file_name)
+                                .unwrap()
                         })
                     })
                     .flatten()
@@ -7554,7 +7558,7 @@ impl AccountsDb {
             .retain(|&slot, _| slot >= last_full_snapshot_slot);
     }
 
-    /// scan 'storages', return a vec of 'CacheHashDataFile', one per pass
+    /// scan 'storages', return a vec of 'CacheHashDataFileReference', one per pass
     fn scan_snapshot_stores_with_cache(
         &self,
         cache_hash_data: &CacheHashData,
@@ -7564,7 +7568,7 @@ impl AccountsDb {
         bin_range: &Range<usize>,
         config: &CalcAccountsHashConfig<'_>,
         filler_account_suffix: Option<&Pubkey>,
-    ) -> Result<Vec<CacheHashDataFile>, AccountsHashVerificationError> {
+    ) -> Result<Vec<CacheHashDataFileReference>, AccountsHashVerificationError> {
         let _guard = self.active_stats.activate(ActiveStatItem::HashScan);
 
         let bin_calculator = PubkeyBinCalculator24::new(bins);
@@ -7658,10 +7662,10 @@ impl AccountsDb {
             config,
             storages,
             stats,
-            CalcAccountsHashFlavor::Full,
+            CalcAccountsHashKind::Full,
             self.full_accounts_hash_cache_path.clone(),
         )?;
-        let AccountsHashEnum::Full(accounts_hash) = accounts_hash else {
+        let AccountsHashKind::Full(accounts_hash) = accounts_hash else {
             panic!("calculate_accounts_hash_from_storages must return a FullAccountsHash");
         };
         Ok((accounts_hash, capitalization))
@@ -7686,10 +7690,10 @@ impl AccountsDb {
             config,
             storages,
             stats,
-            CalcAccountsHashFlavor::Incremental,
+            CalcAccountsHashKind::Incremental,
             self.incremental_accounts_hash_cache_path.clone(),
         )?;
-        let AccountsHashEnum::Incremental(incremental_accounts_hash) = accounts_hash else {
+        let AccountsHashKind::Incremental(incremental_accounts_hash) = accounts_hash else {
             panic!("calculate_incremental_accounts_hash must return an IncrementalAccountsHash");
         };
         Ok((incremental_accounts_hash, capitalization))
@@ -7700,9 +7704,9 @@ impl AccountsDb {
         config: &CalcAccountsHashConfig<'_>,
         storages: &SortedStorages<'_>,
         mut stats: HashStats,
-        flavor: CalcAccountsHashFlavor,
+        kind: CalcAccountsHashKind,
         accounts_hash_cache_path: PathBuf,
-    ) -> Result<(AccountsHashEnum, u64), AccountsHashVerificationError> {
+    ) -> Result<(AccountsHashKind, u64), AccountsHashVerificationError> {
         let total_time = Measure::start("");
         let _guard = self.active_stats.activate(ActiveStatItem::Hash);
         stats.oldest_root = storages.range().start;
@@ -7732,13 +7736,13 @@ impl AccountsDb {
                 } else {
                     None
                 },
-                zero_lamport_accounts: flavor.zero_lamport_accounts(),
+                zero_lamport_accounts: kind.zero_lamport_accounts(),
                 dir_for_temp_cache_files: self.transient_accounts_hash_cache_path.clone(),
                 active_stats: &self.active_stats,
             };
 
             // get raw data by scanning
-            let cache_hash_data_files = self.scan_snapshot_stores_with_cache(
+            let cache_hash_data_file_references = self.scan_snapshot_stores_with_cache(
                 &cache_hash_data,
                 storages,
                 &mut stats,
@@ -7748,19 +7752,32 @@ impl AccountsDb {
                 accounts_hasher.filler_account_suffix.as_ref(),
             )?;
 
+            let cache_hash_data_files = cache_hash_data_file_references
+                .iter()
+                .map(|d| d.map())
+                .collect::<Vec<_>>();
+
+            if let Some(err) = cache_hash_data_files
+                .iter()
+                .filter_map(|r| r.as_ref().err())
+                .next()
+            {
+                panic!("failed generating accounts hash files: {:?}", err);
+            }
+
             // convert mmapped cache files into slices of data
             let cache_hash_intermediates = cache_hash_data_files
                 .iter()
-                .map(|d| d.get_cache_hash_data())
+                .map(|d| d.as_ref().unwrap().get_cache_hash_data())
                 .collect::<Vec<_>>();
 
             // turn raw data into merkle tree hashes and sum of lamports
             let (accounts_hash, capitalization) =
                 accounts_hasher.rest_of_hash_calculation(&cache_hash_intermediates, &mut stats);
-            let accounts_hash = match flavor {
-                CalcAccountsHashFlavor::Full => AccountsHashEnum::Full(AccountsHash(accounts_hash)),
-                CalcAccountsHashFlavor::Incremental => {
-                    AccountsHashEnum::Incremental(IncrementalAccountsHash(accounts_hash))
+            let accounts_hash = match kind {
+                CalcAccountsHashKind::Full => AccountsHashKind::Full(AccountsHash(accounts_hash)),
+                CalcAccountsHashKind::Incremental => {
+                    AccountsHashKind::Incremental(IncrementalAccountsHash(accounts_hash))
                 }
             };
             info!("calculate_accounts_hash_from_storages: slot: {slot}, {accounts_hash:?}, capitalization: {capitalization}");
@@ -9566,17 +9583,17 @@ pub enum CalcAccountsHashDataSource {
 
 /// Which accounts hash calculation is being performed?
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum CalcAccountsHashFlavor {
+pub enum CalcAccountsHashKind {
     Full,
     Incremental,
 }
 
-impl CalcAccountsHashFlavor {
+impl CalcAccountsHashKind {
     /// How should zero-lamport accounts be handled by this accounts hash calculation?
     fn zero_lamport_accounts(&self) -> ZeroLamportAccounts {
         match self {
-            CalcAccountsHashFlavor::Full => ZeroLamportAccounts::Excluded,
-            CalcAccountsHashFlavor::Incremental => ZeroLamportAccounts::Included,
+            CalcAccountsHashKind::Full => ZeroLamportAccounts::Excluded,
+            CalcAccountsHashKind::Incremental => ZeroLamportAccounts::Included,
         }
     }
 }
@@ -9680,7 +9697,7 @@ impl AccountsDb {
     pub fn check_accounts(&self, pubkeys: &[Pubkey], slot: Slot, num: usize, count: usize) {
         let ancestors = vec![(slot, 0)].into_iter().collect();
         for _ in 0..num {
-            let idx = thread_rng().gen_range(0, num);
+            let idx = thread_rng().gen_range(0..num);
             let account = self.load_without_fixed_root(&ancestors, &pubkeys[idx]);
             let account1 = Some((
                 AccountSharedData::new(
@@ -9887,7 +9904,7 @@ pub mod test_utils {
     // accounts cache!
     pub fn update_accounts_bench(accounts: &Accounts, pubkeys: &[Pubkey], slot: u64) {
         for pubkey in pubkeys {
-            let amount = thread_rng().gen_range(0, 10);
+            let amount = thread_rng().gen_range(0..10);
             let account = AccountSharedData::new(amount, 0, AccountSharedData::default().owner());
             accounts.store_slow_uncached(slot, pubkey, &account);
         }
@@ -9908,6 +9925,7 @@ pub mod tests {
                 AccountSecondaryIndexesIncludeExclude, ReadAccountMapEntry, RefCount,
             },
             append_vec::{test_utils::TempFile, AppendVecStoredAccountMeta},
+            cache_hash_data::CacheHashDataFile,
             inline_spl_token,
             secondary_index::MAX_NUM_LARGEST_INDEX_KEYS_RETURNED,
         },
@@ -9967,6 +9985,12 @@ pub mod tests {
                 },
                 None,
             )
+            .map(|references| {
+                references
+                    .iter()
+                    .map(|reference| reference.map().unwrap())
+                    .collect::<Vec<_>>()
+            })
         }
 
         fn get_storage_for_slot(&self, slot: Slot) -> Option<Arc<AccountStorageEntry>> {
@@ -10996,9 +11020,13 @@ pub mod tests {
             &Range { start: 0, end: 1 },
             &mut HashStats::default(),
         );
+        let result2 = result
+            .iter()
+            .map(|file| file.map().unwrap())
+            .collect::<Vec<_>>();
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_scan(
-            result,
+            result2,
             vec![vec![vec![CalculateHashIntermediate::new(
                 Hash::default(),
                 expected,
@@ -11377,7 +11405,7 @@ pub mod tests {
         let mut pubkeys: Vec<Pubkey> = vec![];
         db.create_account(&mut pubkeys, 0, 100, 0, 0);
         for _ in 1..100 {
-            let idx = thread_rng().gen_range(0, 99);
+            let idx = thread_rng().gen_range(0..99);
             let ancestors = vec![(0, 0)].into_iter().collect();
             let account = db
                 .load_without_fixed_root(&ancestors, &pubkeys[idx])
@@ -11393,7 +11421,7 @@ pub mod tests {
 
         // check that all the accounts appear with a new root
         for _ in 1..100 {
-            let idx = thread_rng().gen_range(0, 99);
+            let idx = thread_rng().gen_range(0..99);
             let ancestors = vec![(0, 0)].into_iter().collect();
             let account0 = db
                 .load_without_fixed_root(&ancestors, &pubkeys[idx])
@@ -11528,7 +11556,7 @@ pub mod tests {
 
     fn update_accounts(accounts: &AccountsDb, pubkeys: &[Pubkey], slot: Slot, range: usize) {
         for _ in 1..1000 {
-            let idx = thread_rng().gen_range(0, range);
+            let idx = thread_rng().gen_range(0..range);
             let ancestors = vec![(slot, 0)].into_iter().collect();
             if let Some((mut account, _)) =
                 accounts.load_without_fixed_root(&ancestors, &pubkeys[idx])
@@ -12365,7 +12393,7 @@ pub mod tests {
                         let mut account = AccountSharedData::new(1, 0, &pubkey);
                         let mut i = 0;
                         loop {
-                            let account_bal = thread_rng().gen_range(1, 99);
+                            let account_bal = thread_rng().gen_range(1..99);
                             account.set_lamports(account_bal);
                             db.store_for_tests(slot, &[(&pubkey, &account)]);
 
@@ -15166,7 +15194,7 @@ pub mod tests {
                     // Ordering::Relaxed is ok because of no data dependencies; the modified field is
                     // completely free-standing cfg(test) control-flow knob.
                     db.load_limit
-                        .store(thread_rng().gen_range(0, 10) as u64, Ordering::Relaxed);
+                        .store(thread_rng().gen_range(0..10) as u64, Ordering::Relaxed);
 
                     // Load should never be unable to find this key
                     let loaded_account = db
