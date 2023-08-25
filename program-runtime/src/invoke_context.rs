@@ -10,6 +10,7 @@ use {
         sysvar_cache::SysvarCache,
         timings::{ExecuteDetailsTimings, ExecuteTimings},
     },
+    base64::Engine,
     solana_measure::measure::Measure,
     solana_rbpf::{
         ebpf::MM_HEAP_START,
@@ -1047,13 +1048,13 @@ struct TestCase {
     expected_result: Result<(), InstructionError>,
 }
 
-fn bs58_encode<T: serde::Serialize,E>(val: Result<T,E>) -> String {
+fn base64_encode<T: serde::Serialize,E>(val: Result<T,E>) -> String {
     let res = match &val {
         Ok(r) => bincode::serialize(r),
         Err(_) => Ok(Vec::new())
     };
 
-    bs58::encode(res.unwrap()).into_string()
+    base64::engine::general_purpose::STANDARD.encode(res.unwrap())
 }
 
 pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut InvokeContext)>(
@@ -1108,15 +1109,15 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
 
     let sysvar_cache = invoke_context.get_sysvar_cache();
     let tsvc = TestSysvarCache {
-        clock: bs58_encode(sysvar_cache.get_clock()),
-        epoch_schedule: bs58_encode(sysvar_cache.get_epoch_schedule()),
-        epoch_rewards: bs58_encode(sysvar_cache.get_epoch_rewards()),
-        fees: bs58_encode(sysvar_cache.get_fees()),
-        rent: bs58_encode(sysvar_cache.get_rent()),
-        slot_hashes: bs58_encode(sysvar_cache.get_slot_hashes()),
-        recent_blockhashes: bs58_encode(sysvar_cache.get_recent_blockhashes()),
-        stake_history: bs58_encode(sysvar_cache.get_stake_history()),
-        last_restart_slot: bs58_encode(sysvar_cache.get_last_restart_slot()),
+        clock: base64_encode(sysvar_cache.get_clock()),
+        epoch_schedule: base64_encode(sysvar_cache.get_epoch_schedule()),
+        epoch_rewards: base64_encode(sysvar_cache.get_epoch_rewards()),
+        fees: base64_encode(sysvar_cache.get_fees()),
+        rent: base64_encode(sysvar_cache.get_rent()),
+        slot_hashes: base64_encode(sysvar_cache.get_slot_hashes()),
+        recent_blockhashes: base64_encode(sysvar_cache.get_recent_blockhashes()),
+        stake_history: base64_encode(sysvar_cache.get_stake_history()),
+        last_restart_slot: base64_encode(sysvar_cache.get_last_restart_slot()),
     };
 
     let mainnet =
