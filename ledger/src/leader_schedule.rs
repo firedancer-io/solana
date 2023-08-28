@@ -1,10 +1,14 @@
 use {
+    firedancer_sys::tango::{fd_leader_schedule_get, fd_leader_schedule_t, fd_mvcc_begin_write, fd_mvcc_end_write},
     itertools::Itertools,
     rand::distributions::{Distribution, WeightedIndex},
     rand_chacha::{rand_core::SeedableRng, ChaChaRng},
     solana_sdk::pubkey::Pubkey,
+    std::ffi::CString,
+    std::ptr,
     std::{collections::HashMap, convert::identity, ops::Index, sync::Arc},
 };
+use solana_sdk::clock::DEFAULT_SLOTS_PER_EPOCH;
 
 // Used for testing
 #[derive(Clone, Debug)]
@@ -27,7 +31,7 @@ impl LeaderSchedule {
         let rng = &mut ChaChaRng::from_seed(seed);
         let weighted_index = WeightedIndex::new(stakes).unwrap();
         let mut current_node = Pubkey::default();
-        let slot_leaders = (0..len)
+        let slot_leaders:Vec<Pubkey> = (0..len)
             .map(|i| {
                 if i % repeat == 0 {
                     current_node = ids[weighted_index.sample(rng)];
@@ -35,6 +39,23 @@ impl LeaderSchedule {
                 current_node
             })
             .collect();
+        let num_leaders = unsafe {
+            // TODO: LML after the PR with firedancer_app_name is merged use it here.
+            #[allow(temporary_cstring_as_ptr)]
+            let schedule: *mut fd_leader_schedule_t = fd_leader_schedule_get(CString::new("fd1").unwrap().as_ptr());
+            if !schedule.is_null() && slot_leaders.len() < DEFAULT_SLOTS_PER_EPOCH as usize {
+                (*schedule).size = len;
+                fd_mvcc_begin_write(&mut (*schedule).mvcc);
+                ptr::copy_nonoverlapping(slot_leaders.as_ptr(), (*schedule).schedule.as_mut_ptr() as * mut solana_sdk::pubkey::Pubkey, slot_leaders.len());
+                fd_mvcc_end_write(&mut (*schedule).mvcc);
+                slot_leaders.len()
+            } else {
+                0
+            }
+        };
+        if num_leaders as u64 != len {
+            eprintln!("leader_schedule num_leaders={:?} len={:?}", num_leaders, len);
+        }
         Self::new_from_schedule(slot_leaders)
     }
 

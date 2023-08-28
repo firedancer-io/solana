@@ -18,6 +18,7 @@ chrono = { workspace = true, features = ["default", "serde"] }
 chrono-humanize = { workspace = true }
 crossbeam-channel = { workspace = true }
 dashmap = { workspace = true, features = ["rayon", "raw-api"] }
+firedancer-sys = { path = "../../ffi/rust/firedancer-sys" }
 fs_extra = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
