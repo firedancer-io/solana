@@ -48,7 +48,7 @@ use {
 
 pub extern crate bs58;
 
-use std::env;
+use std::{env, path::Path, fs::OpenOptions, io::Write};
 
 use std::backtrace::Backtrace;
 
@@ -1031,6 +1031,8 @@ pub struct TestSysvarCache {
     last_restart_slot: String,
 }
 
+const HOME_DIR: &str = env!("HOME");
+
 #[serde_as]
 #[derive(Serialize)]
 struct TestCase {
@@ -1046,6 +1048,32 @@ struct TestCase {
     resulting_accounts: Vec<TestAccountSharedData>,
     instruction_accounts: Vec<TestInstructionAccount>,
     expected_result: Result<(), InstructionError>,
+}
+
+impl TestCase {
+    fn print(&self, mainnet: bool) {
+        let mainnet_str = if mainnet {
+            "-mainnet"
+        } else {
+            ""
+        };
+        let pkg_name = match std::env::var("PKG_NAME") {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let path_str = format!("{}/firedancer-testbins/{}{}.json", HOME_DIR, pkg_name, mainnet_str);
+        let path = Path::new(path_str.as_str());
+
+        let mut file = match OpenOptions::new().append(true).create(true).open(&path) {
+            Err(_why) => return,
+            Ok(file) => file,
+        };
+        let s = serde_json::to_string(self).unwrap() + ",";
+        match file.write_all(s.as_bytes()) {
+            Err(_why) => return,
+            Ok(_) => (),
+        }
+    }
 }
 
 fn base64_encode<T: serde::Serialize,E>(val: Result<T,E>) -> String {
@@ -1320,8 +1348,7 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
     transaction_accounts.pop();
 
     let bts = Backtrace::capture().to_string();
-
-    println!("test_case_json {}", serde_json::to_string(&TestCase {
+    let test_case = TestCase {
         name: std::thread::current().name().unwrap().to_string(),
         program_id: loader_id.clone(),
         backtrace: bts,
@@ -1341,7 +1368,9 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
                 is_writable: acc_meta.is_writable }
         }).collect(),
         expected_result: expected_result.clone(),
-    }).unwrap());
+    };
+    test_case.print(mainnet);
+    // println!("test_case_json {}", serde_json::to_string(&).unwrap());
 
     transaction_accounts
 }
