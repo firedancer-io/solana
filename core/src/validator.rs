@@ -474,6 +474,7 @@ impl Validator {
         tpu_connection_pool_size: usize,
         tpu_enable_udp: bool,
         admin_rpc_service_post_init: Arc<RwLock<Option<AdminRpcRequestMetadataPostInit>>>,
+        firedancer_app_name: String,
     ) -> Result<Self, String> {
         let id = identity_keypair.pubkey();
         assert_eq!(&id, node.info.pubkey());
@@ -1206,6 +1207,7 @@ impl Validator {
             tpu_enable_udp,
             &prioritization_fee_cache,
             config.generator_config.clone(),
+            firedancer_app_name,
         );
 
         datapoint_info!(

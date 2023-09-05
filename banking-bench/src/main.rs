@@ -452,13 +452,14 @@ fn main() {
             non_vote_receiver,
             tpu_vote_receiver,
             gossip_vote_receiver,
-            num_banking_threads,
+            // num_banking_threads,
             None,
             replay_vote_sender,
             None,
             Arc::new(connection_cache),
             bank_forks.clone(),
             &Arc::new(PrioritizationFeeCache::new(0u64)),
+            "".into(),
         );
 
         // This is so that the signal_receiver does not go out of scope after the closure.
