@@ -2841,8 +2841,8 @@ pub struct Sockets {
     pub retransmit_sockets: Vec<UdpSocket>,
     pub serve_repair: UdpSocket,
     pub ancestor_hashes_requests: UdpSocket,
-    pub tpu_quic: UdpSocket,
-    pub tpu_forwards_quic: UdpSocket,
+    pub tpu_quic: Option<UdpSocket>,
+    pub tpu_forwards_quic: Option<UdpSocket>,
 }
 
 #[derive(Debug)]
@@ -2932,8 +2932,8 @@ impl Node {
                 retransmit_sockets: vec![retransmit_socket],
                 serve_repair,
                 ancestor_hashes_requests,
-                tpu_quic,
-                tpu_forwards_quic,
+                tpu_quic: Some(tpu_quic),
+                tpu_forwards_quic: Some(tpu_forwards_quic),
             },
         }
     }
@@ -3023,8 +3023,8 @@ impl Node {
                 retransmit_sockets: vec![retransmit_socket],
                 serve_repair,
                 ancestor_hashes_requests,
-                tpu_quic,
-                tpu_forwards_quic,
+                tpu_quic: Some(tpu_quic),
+                tpu_forwards_quic: Some(tpu_forwards_quic),
             },
         }
     }
@@ -3036,6 +3036,7 @@ impl Node {
         bind_ip_addr: IpAddr,
         public_tpu_addr: Option<SocketAddr>,
         public_tpu_forwards_addr: Option<SocketAddr>,
+        tpu_port: u16,
     ) -> Node {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
@@ -3046,6 +3047,7 @@ impl Node {
         let (tvu_forwards_port, tvu_forwards_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu_forwards multi_bind");
 
+        /*
         let (tpu_port, tpu_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 32).expect("tpu multi_bind");
 
@@ -3067,6 +3069,7 @@ impl Node {
 
         let (tpu_vote_port, tpu_vote_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 1).expect("tpu_vote multi_bind");
+        */
 
         let (_, retransmit_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("retransmit multi_bind");
@@ -3091,9 +3094,9 @@ impl Node {
         let _ = info.set_repair((addr, repair_port));
         let _ = info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(addr, tpu_port)));
         let _ = info.set_tpu_forwards(
-            public_tpu_forwards_addr.unwrap_or_else(|| SocketAddr::new(addr, tpu_forwards_port)),
+            public_tpu_forwards_addr.unwrap_or_else(|| SocketAddr::new(addr, tpu_port)),
         );
-        let _ = info.set_tpu_vote((addr, tpu_vote_port));
+        let _ = info.set_tpu_vote((addr, tpu_port));
         let _ = info.set_serve_repair((addr, serve_repair_port));
         trace!("new ContactInfo: {:?}", info);
 
@@ -3103,17 +3106,17 @@ impl Node {
                 gossip,
                 tvu: tvu_sockets,
                 tvu_forwards: tvu_forwards_sockets,
-                tpu: tpu_sockets,
-                tpu_forwards: tpu_forwards_sockets,
-                tpu_vote: tpu_vote_sockets,
+                tpu: vec![], // tpu_sockets,
+                tpu_forwards: vec![], // tpu_forwards_sockets,
+                tpu_vote: vec![], // tpu_vote_sockets,
                 broadcast,
                 repair,
                 retransmit_sockets,
                 serve_repair,
                 ip_echo: Some(ip_echo),
                 ancestor_hashes_requests,
-                tpu_quic,
-                tpu_forwards_quic,
+                tpu_quic: None,
+                tpu_forwards_quic: None,
             },
         }
     }
