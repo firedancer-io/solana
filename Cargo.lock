@@ -123,6 +123,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "annotate-snippets"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b9d411ecbaf79885c6df4d75fff75858d5995ff25385657a28af47e82f9c36"
+dependencies = [
+ "unicode-width",
+ "yansi-term",
+]
+
+[[package]]
 name = "ansi_term"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -548,6 +558,30 @@ dependencies = [
  "rustc-hash",
  "shlex",
  "syn 2.0.31",
+]
+
+[[package]]
+name = "bindgen"
+version = "0.66.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
+dependencies = [
+ "annotate-snippets",
+ "bitflags 2.4.0",
+ "cexpr",
+ "clang-sys",
+ "lazy_static",
+ "lazycell",
+ "log",
+ "peeking_take_while",
+ "prettyplease 0.2.14",
+ "proc-macro2 1.0.66",
+ "quote 1.0.33",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn 2.0.31",
+ "which",
 ]
 
 [[package]]
@@ -1755,6 +1789,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "firedancer-sys"
+version = "0.3.0"
+dependencies = [
+ "bindgen 0.66.1",
+ "paste",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2612,7 +2654,7 @@ version = "0.11.0+8.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3386f101bcb4bd252d8e9d2fb41ec3b0862a15a62b478c355b2982efa469e3e"
 dependencies = [
- "bindgen",
+ "bindgen 0.65.1",
  "bzip2-sys",
  "cc",
  "glob",
@@ -5216,6 +5258,7 @@ dependencies = [
  "dashmap 4.0.2",
  "eager",
  "etcd-client",
+ "firedancer-sys",
  "fs_extra",
  "histogram",
  "itertools",
@@ -5239,6 +5282,7 @@ dependencies = [
  "solana-bloom",
  "solana-client",
  "solana-entry",
+ "solana-firedancer",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-geyser-plugin-manager",
@@ -5372,6 +5416,14 @@ dependencies = [
  "spl-memo",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "solana-firedancer"
+version = "1.16.13"
+dependencies = [
+ "firedancer-sys",
+ "paste",
 ]
 
 [[package]]
@@ -8401,6 +8453,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
 dependencies = [
  "linked-hash-map",
+]
+
+[[package]]
+name = "yansi-term"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5c30ade05e61656247b2e334a031dfd0cc466fadef865bdcdea8d537951bf1"
+dependencies = [
+ "winapi 0.3.9",
 ]
 
 [[package]]

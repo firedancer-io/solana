@@ -1052,6 +1052,8 @@ where
         DEFAULT_TPU_ENABLE_UDP
     };
 
+    let tpu_port = value_t_or_exit!(matches, "tpu_port", u16);
+
     let tpu_connection_pool_size = value_t_or_exit!(matches, "tpu_connection_pool_size", usize);
 
     let shrink_ratio = value_t_or_exit!(matches, "accounts_shrink_ratio", f64);
@@ -1772,6 +1774,7 @@ where
         bind_address,
         public_tpu_addr,
         public_tpu_forwards_addr,
+        tpu_port,
     );
 
     if restricted_repair_only_mode {
@@ -1849,6 +1852,8 @@ where
         return;
     }
 
+    let firedancer_app_name = value_t_or_exit!(matches, "firedancer_app_name", String);
+
     let validator = Validator::new(
         node,
         identity_keypair,
@@ -1865,6 +1870,7 @@ where
         tpu_connection_pool_size,
         tpu_enable_udp,
         admin_service_post_init,
+        firedancer_app_name,
     )
     .unwrap_or_else(|e| {
         error!("Failed to start validator: {:?}", e);

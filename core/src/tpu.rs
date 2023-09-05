@@ -58,8 +58,8 @@ pub struct TpuSockets {
     pub transaction_forwards: Vec<UdpSocket>,
     pub vote: Vec<UdpSocket>,
     pub broadcast: Vec<UdpSocket>,
-    pub transactions_quic: UdpSocket,
-    pub transactions_forwards_quic: UdpSocket,
+    pub transactions_quic: Option<UdpSocket>,
+    pub transactions_forwards_quic: Option<UdpSocket>,
 }
 
 pub struct Tpu {
@@ -69,8 +69,8 @@ pub struct Tpu {
     banking_stage: BankingStage,
     cluster_info_vote_listener: ClusterInfoVoteListener,
     broadcast_stage: BroadcastStage,
-    tpu_quic_t: thread::JoinHandle<()>,
-    tpu_forwards_quic_t: thread::JoinHandle<()>,
+    tpu_quic_t: Option<thread::JoinHandle<()>>,
+    tpu_forwards_quic_t: Option<thread::JoinHandle<()>>,
     tpu_entry_notifier: Option<TpuEntryNotifier>,
     staked_nodes_updater_service: StakedNodesUpdaterService,
     tracer_thread_hdl: TracerThread,
@@ -110,6 +110,7 @@ impl Tpu {
         tpu_enable_udp: bool,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
+        firedancer_app_name: String,
     ) -> Self {
         let TpuSockets {
             transactions: transactions_sockets,
@@ -147,45 +148,55 @@ impl Tpu {
 
         let (non_vote_sender, non_vote_receiver) = banking_tracer.create_channel_non_vote();
 
-        let (_, tpu_quic_t) = spawn_server(
-            "quic_streamer_tpu",
-            transactions_quic_sockets,
-            keypair,
-            cluster_info
-                .my_contact_info()
-                .tpu(Protocol::QUIC)
-                .expect("Operator must spin up node with valid (QUIC) TPU address")
-                .ip(),
-            packet_sender,
-            exit.clone(),
-            MAX_QUIC_CONNECTIONS_PER_PEER,
-            staked_nodes.clone(),
-            MAX_STAKED_CONNECTIONS,
-            MAX_UNSTAKED_CONNECTIONS,
-            DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-            tpu_coalesce,
-        )
-        .unwrap();
+        let tpu_quic_t = if let Some(transactions_quic_sockets) = transactions_quic_sockets {
+            let (_, tpu_quic_t) = spawn_server(
+                "quic_streamer_tpu",
+                transactions_quic_sockets,
+                keypair,
+                cluster_info
+                    .my_contact_info()
+                    .tpu(Protocol::QUIC)
+                    .expect("Operator must spin up node with valid (QUIC) TPU address")
+                    .ip(),
+                packet_sender,
+                exit.clone(),
+                MAX_QUIC_CONNECTIONS_PER_PEER,
+                staked_nodes.clone(),
+                MAX_STAKED_CONNECTIONS,
+                MAX_UNSTAKED_CONNECTIONS,
+                DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
+                tpu_coalesce,
+            )
+            .unwrap();
+            Some(tpu_quic_t)
+        } else {
+            None
+        };
 
-        let (_, tpu_forwards_quic_t) = spawn_server(
-            "quic_streamer_tpu_forwards",
-            transactions_forwards_quic_sockets,
-            keypair,
-            cluster_info
-                .my_contact_info()
-                .tpu_forwards(Protocol::QUIC)
-                .expect("Operator must spin up node with valid (QUIC) TPU-forwards address")
-                .ip(),
-            forwarded_packet_sender,
-            exit.clone(),
-            MAX_QUIC_CONNECTIONS_PER_PEER,
-            staked_nodes.clone(),
-            MAX_STAKED_CONNECTIONS.saturating_add(MAX_UNSTAKED_CONNECTIONS),
-            0, // Prevent unstaked nodes from forwarding transactions
-            DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-            tpu_coalesce,
-        )
-        .unwrap();
+        let tpu_forwards_quic_t = if let Some(transactions_forwards_quic_sockets) = transactions_forwards_quic_sockets {
+            let (_, tpu_forwards_quic_t) = spawn_server(
+                "quic_streamer_tpu_forwards",
+                transactions_forwards_quic_sockets,
+                keypair,
+                cluster_info
+                    .my_contact_info()
+                    .tpu_forwards(Protocol::QUIC)
+                    .expect("Operator must spin up node with valid (QUIC) TPU-forwards address")
+                    .ip(),
+                forwarded_packet_sender,
+                exit.clone(),
+                MAX_QUIC_CONNECTIONS_PER_PEER,
+                staked_nodes.clone(),
+                MAX_STAKED_CONNECTIONS.saturating_add(MAX_UNSTAKED_CONNECTIONS),
+                0, // Prevent unstaked nodes from forwarding transactions
+                DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
+                tpu_coalesce,
+            )
+            .unwrap();
+            Some(tpu_forwards_quic_t)
+        } else {
+            None
+        };
 
         let sigverify_stage = {
             let verifier = TransactionSigVerifier::new(non_vote_sender);
@@ -229,6 +240,7 @@ impl Tpu {
             connection_cache.clone(),
             bank_forks.clone(),
             prioritization_fee_cache,
+            firedancer_app_name,
         );
 
         let (entry_receiver, tpu_entry_notifier) =
@@ -279,8 +291,8 @@ impl Tpu {
             self.cluster_info_vote_listener.join(),
             self.banking_stage.join(),
             self.staked_nodes_updater_service.join(),
-            self.tpu_quic_t.join(),
-            self.tpu_forwards_quic_t.join(),
+            self.tpu_quic_t.map_or(Ok(()), |x| x.join()),
+            self.tpu_forwards_quic_t.map_or(Ok(()), |x| x.join()),
         ];
         let broadcast_result = self.broadcast_stage.join();
         for result in results {
