@@ -100,6 +100,13 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                        --identity keypair or with the --authorized-voter argument")
         )
         .arg(
+            Arg::with_name("firedancer_app_name")
+                .long("firedancer-app-name")
+                .value_name("NAME")
+                .takes_value(true)
+                .help("Name of this firedancer app")
+        )
+        .arg(
             Arg::with_name("init_complete_file")
                 .long("init-complete-file")
                 .value_name("FILE")
@@ -800,6 +807,13 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 .long("tpu-enable-udp")
                 .takes_value(false)
                 .help("Enable UDP for receiving/sending transactions."),
+        )
+        .arg(
+            Arg::with_name("tpu_port")
+                .long("tpu-port")
+                .takes_value(true)
+                .validator(is_parsable::<u16>)
+                .help("Port to use for receiving transactions in the TPU."),
         )
         .arg(
             Arg::with_name("tpu_connection_pool_size")

@@ -22,6 +22,7 @@ crossbeam-channel = { workspace = true }
 dashmap = { workspace = true, features = ["rayon", "raw-api"] }
 eager = { workspace = true }
 etcd-client = { workspace = true, features = ["tls"] }
+firedancer-sys = { workspace = true }
 histogram = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
@@ -39,6 +40,7 @@ solana-address-lookup-table-program = { workspace = true }
 solana-bloom = { workspace = true }
 solana-client = { workspace = true }
 solana-entry = { workspace = true }
+solana-firedancer = { workspace = true }
 solana-frozen-abi = { workspace = true }
 solana-frozen-abi-macro = { workspace = true }
 solana-geyser-plugin-manager = { workspace = true }

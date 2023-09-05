@@ -524,7 +524,7 @@ impl Consumer {
         }
     }
 
-    fn execute_and_commit_transactions_locked(
+    pub fn execute_and_commit_transactions_locked(
         &self,
         bank: &Arc<Bank>,
         batch: &TransactionBatch,
