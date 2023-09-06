@@ -116,7 +116,7 @@ pub fn serialize_points(points: &Vec<DataPoint>, host_id: &str) -> String {
 impl MetricsWriter for InfluxDbMetricsWriter {
     fn write(&self, points: Vec<DataPoint>) {
         if let Some(ref write_url) = self.write_url {
-            debug!("submitting {} points", points.len());
+            eprintln!("LML submitting {} points", points.len());
 
             let host_id = HOST_ID.read().unwrap();
 
@@ -128,7 +128,7 @@ impl MetricsWriter for InfluxDbMetricsWriter {
             let client = match client {
                 Ok(client) => client,
                 Err(err) => {
-                    warn!("client instantiation failed: {}", err);
+                    eprintln!("LML client instantiation failed: {}", err);
                     return;
                 }
             };
@@ -140,10 +140,10 @@ impl MetricsWriter for InfluxDbMetricsWriter {
                     let text = resp
                         .text()
                         .unwrap_or_else(|_| "[text body empty]".to_string());
-                    warn!("submit response unsuccessful: {} {}", status, text,);
+                    eprintln!("LML submit response unsuccessful: {} {}", status, text,);
                 }
             } else {
-                warn!("submit error: {}", response.unwrap_err());
+                eprintln!("LML submit error: {}", response.unwrap_err());
             }
         }
     }
@@ -164,6 +164,17 @@ impl Default for MetricsAgent {
             max_points_per_sec,
         )
     }
+}
+
+// impl Drop for MetricsAgent {
+//     fn drop(&mut self) {
+//         self.sender.drop()
+//     }
+// }
+
+pub fn write_single(datapoint: DataPoint) {
+    let writer = InfluxDbMetricsWriter::new();
+    writer.write(vec![datapoint]);
 }
 
 impl MetricsAgent {
@@ -226,6 +237,8 @@ impl MetricsAgent {
                 .to_owned(),
         );
 
+        eprintln!("metrics_thread: writer {:?}", get_metrics_config().unwrap());
+        eprintln!("metrics_thread: writer points {:?}", points);
         writer.write(points);
     }
 
@@ -246,10 +259,14 @@ impl MetricsAgent {
             match receiver.recv_timeout(write_frequency / 2) {
                 Ok(cmd) => match cmd {
                     MetricsCommand::Flush(barrier) => {
-                        debug!("metrics_thread: flush");
+                        eprintln!("metrics_thread: flush {:?}", get_metrics_config().unwrap());
+                        let points = Self::collect_points(&mut points, &mut counters);
+                        for point in &points {
+                            eprintln!("metrics_thread: {:?}", point);
+                        }
                         Self::write(
                             writer,
-                            Self::collect_points(&mut points, &mut counters),
+                            points,
                             max_points,
                             max_points_per_sec,
                             last_write_time,
@@ -294,7 +311,7 @@ impl MetricsAgent {
                 last_write_time = now;
             }
         }
-        trace!("run: exit");
+        eprintln!("lml run: exit");
     }
 
     pub fn submit(&self, point: DataPoint, level: log::Level) {

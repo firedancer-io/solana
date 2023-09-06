@@ -3,16 +3,51 @@ pub mod counter;
 pub mod datapoint;
 pub mod metrics;
 pub mod poh_timing_point;
+
+use std::env;
 pub use crate::metrics::{flush, query, set_host_id, set_panic_hook, submit};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
+use std::thread::sleep;
+use std::time::Duration;
+use gethostname::gethostname;
+use log::Level;
+use crate::datapoint::DataPoint;
+use crate::metrics::MetricsAgent;
 
 // To track an external counter which cannot be reset and is always increasing
 #[derive(Default)]
 pub struct MovingStat {
     value: AtomicU64,
+}
+
+#[no_mangle]
+pub extern "C" fn rust_function( num: i64 ) {
+    // sleep(Duration::from_secs(30));
+    set_host_id(gethostname().to_str().unwrap().to_string());
+    env::set_var("SOLANA_METRICS_CONFIG", "host=https://metrics.solana.com:8086,db=devnet,u=scratch_writer,p=topsecret");
+    let datapoint = DataPoint::new("test_measurement3").add_field_i64("field_i", num).to_owned();
+    // submit(datapoint, Level::Info);
+    // flush();
+    // let agent = MetricsAgent::default();
+    // agent.submit(datapoint, Level::Info);
+    // agent.flush();
+    metrics::write_single(datapoint);
+
+    eprintln!("neat: rust_function");
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_lml() {
+        rust_function()
+    }
 }
 
 impl MovingStat {
