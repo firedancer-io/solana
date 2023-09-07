@@ -144,6 +144,7 @@ impl Tpu {
             bank_forks.clone(),
             staked_nodes.clone(),
             shared_staked_nodes_overrides,
+            firedancer_app_name.clone(),
         );
 
         let (non_vote_sender, non_vote_receiver) = banking_tracer.create_channel_non_vote();
