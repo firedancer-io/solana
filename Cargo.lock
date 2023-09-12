@@ -5948,6 +5948,7 @@ dependencies = [
  "matches",
  "rand 0.7.3",
  "solana-entry",
+ "solana-firedancer",
  "solana-ledger",
  "solana-logger",
  "solana-measure",
