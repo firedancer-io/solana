@@ -8,6 +8,7 @@ mod mcache;
 mod mvcc;
 mod pod;
 mod rng;
+mod ulong;
 mod workspace;
 
 use bits::*;
@@ -20,4 +21,5 @@ pub use mcache::*;
 pub use mvcc::*;
 pub use pod::*;
 pub use rng::*;
+pub use ulong::*;
 pub use workspace::*;
