@@ -18,6 +18,7 @@ use {
         entry::{hash_transactions, Entry},
         poh::Poh,
     },
+    solana_firedancer::{GlobalAddress, Pod, ULong},
     solana_ledger::{
         blockstore::Blockstore,
         genesis_utils::{create_genesis_config, GenesisConfigInfo},
@@ -37,7 +38,7 @@ use {
     std::{
         cmp,
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicU64, Ordering},
             Arc, Mutex, RwLock,
         },
         time::{Duration, Instant},
@@ -303,6 +304,7 @@ pub struct PohRecorder {
     record_sender: Sender<Record>,
     leader_bank_notifier: Arc<LeaderBankNotifier>,
     pub is_exited: Arc<AtomicBool>,
+    firedancer_poh_slot: ULong,
 }
 
 impl PohRecorder {
@@ -556,6 +558,9 @@ impl PohRecorder {
         self.clear_bank();
         self.reset_poh(reset_bank, true);
 
+        unsafe { std::mem::transmute::<*mut u64, &AtomicU64>(self.firedancer_poh_slot.value) }
+            .store(0, Ordering::Relaxed); /* Ordering doesn't matter, just telling pack to stop sending when it can */
+
         if let Some(ref sender) = self.poh_timing_point_sender {
             // start_slot() is the parent slot. current slot is start_slot() + 1.
             send_poh_timing_point(
@@ -601,7 +606,10 @@ impl PohRecorder {
                 self.reset_poh(working_bank.bank.clone(), false);
             }
         }
+        let slot = working_bank.bank.slot();
         self.working_bank = Some(working_bank);
+        unsafe { std::mem::transmute::<*mut u64, &AtomicU64>(self.firedancer_poh_slot.value) }
+            .store(slot, Ordering::Release); /* release ordering, working_bank ptr must be updated before pack packs */
 
         // send poh slot start timing point
         if let Some(ref sender) = self.poh_timing_point_sender {
@@ -918,7 +926,11 @@ impl PohRecorder {
         poh_config: &PohConfig,
         poh_timing_point_sender: Option<PohTimingSender>,
         is_exited: Arc<AtomicBool>,
+        firedancer_app_name: String,
     ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
+        let pack_pod = unsafe { Pod::join_default(format!("{}_pack0.wksp", firedancer_app_name)).unwrap() };
+        let firedancer_poh_slot = unsafe { ULong::join::<GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
+
         let tick_number = 0;
         let poh = Arc::new(Mutex::new(Poh::new_with_slot_info(
             last_entry_hash,
@@ -966,6 +978,7 @@ impl PohRecorder {
                 record_sender,
                 leader_bank_notifier: Arc::default(),
                 is_exited,
+                firedancer_poh_slot,
             },
             receiver,
             record_receiver,
@@ -987,6 +1000,7 @@ impl PohRecorder {
         leader_schedule_cache: &Arc<LeaderScheduleCache>,
         poh_config: &PohConfig,
         is_exited: Arc<AtomicBool>,
+        firedancer_app_name: String,
     ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
         Self::new_with_clear_signal(
             tick_height,
@@ -1001,6 +1015,7 @@ impl PohRecorder {
             poh_config,
             None,
             is_exited,
+            firedancer_app_name,
         )
     }
 
@@ -1059,6 +1074,7 @@ pub fn create_test_recorder(
         &leader_schedule_cache,
         &poh_config,
         exit.clone(),
+        "".into(),
     );
     poh_recorder.set_bank(bank.clone(), false);
 
@@ -1108,6 +1124,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::default()),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
             poh_recorder.tick();
             assert_eq!(poh_recorder.tick_cache.len(), 1);
@@ -1138,6 +1155,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::default()),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
             poh_recorder.tick();
             poh_recorder.tick();
@@ -1167,6 +1185,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::default()),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
             poh_recorder.tick();
             assert_eq!(poh_recorder.tick_cache.len(), 1);
@@ -1196,6 +1215,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             poh_recorder.set_bank(bank, false);
@@ -1226,6 +1246,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             bank0.fill_bank_with_ticks_for_tests();
@@ -1289,6 +1310,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             // Tick further than the bank's max height
@@ -1338,6 +1360,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             bank0.fill_bank_with_ticks_for_tests();
@@ -1381,6 +1404,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             poh_recorder.set_bank(bank.clone(), false);
@@ -1423,6 +1447,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             bank0.fill_bank_with_ticks_for_tests();
@@ -1479,6 +1504,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             poh_recorder.set_bank(bank.clone(), false);
@@ -1519,6 +1545,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             poh_recorder.set_bank(bank.clone(), true);
@@ -1591,6 +1618,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             bank0.fill_bank_with_ticks_for_tests();
@@ -1647,6 +1675,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::default()),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
             poh_recorder.tick();
             poh_recorder.tick();
@@ -1676,6 +1705,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::default()),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
             poh_recorder.tick();
             poh_recorder.tick();
@@ -1707,6 +1737,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::default()),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
             poh_recorder.tick();
             poh_recorder.tick();
@@ -1741,6 +1772,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             poh_recorder.set_bank(bank.clone(), false);
@@ -1774,6 +1806,7 @@ mod tests {
                     &PohConfig::default(),
                     None,
                     Arc::new(AtomicBool::default()),
+                    "".into(),
                 );
             poh_recorder.set_bank(bank, false);
             poh_recorder.clear_bank();
@@ -1808,6 +1841,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             poh_recorder.set_bank(bank.clone(), false);
@@ -1856,6 +1890,7 @@ mod tests {
                 &leader_schedule_cache,
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             let bootstrap_validator_id = leader_schedule_cache.slot_leader_at(0, None).unwrap();
@@ -1919,6 +1954,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank0)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             // Test that with no next leader slot, we don't reach the leader slot
@@ -2080,6 +2116,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
 
             // Test that with no leader slot, we don't reach the leader tick
@@ -2132,6 +2169,7 @@ mod tests {
                 &Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 &PohConfig::default(),
                 Arc::new(AtomicBool::default()),
+                "".into(),
             );
             //create a new bank
             let bank = Arc::new(Bank::new_from_parent(&bank, &Pubkey::default(), 2));
