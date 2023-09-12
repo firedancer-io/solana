@@ -14,6 +14,7 @@ core_affinity = { workspace = true }
 crossbeam-channel = { workspace = true }
 log = { workspace = true }
 solana-entry = { workspace = true }
+solana-firedancer = { workspace = true }
 solana-ledger = { workspace = true }
 solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
