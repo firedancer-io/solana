@@ -1167,6 +1167,7 @@ impl Validator {
             &connection_cache,
             &prioritization_fee_cache,
             banking_tracer.clone(),
+            firedancer_app_name.clone(),
         )?;
 
         let tpu = Tpu::new(
