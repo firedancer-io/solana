@@ -9,6 +9,7 @@ use {
         cluster_info_vote_listener::{
             GossipDuplicateConfirmedSlotsReceiver, GossipVerifiedVoteHashReceiver, VoteTracker,
         },
+        cluster_nodes::{ClusterNodesCache, NodeId},
         cluster_slot_state_verifier::*,
         cluster_slots::ClusterSlots,
         cluster_slots_service::ClusterSlotsUpdateSender,
@@ -36,7 +37,9 @@ use {
     crossbeam_channel::{Receiver, RecvTimeoutError, Sender},
     lazy_static::lazy_static,
     rayon::{prelude::*, ThreadPool},
+    solana_client::connection_cache::Protocol,
     solana_entry::entry::VerifyRecyclers,
+    solana_firedancer::{GlobalAddress, Mvcc, Pod},
     solana_geyser_plugin_manager::block_metadata_notifier_interface::BlockMetadataNotifierLock,
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::{
@@ -79,6 +82,7 @@ use {
     solana_vote_program::vote_state::VoteTransaction,
     std::{
         collections::{HashMap, HashSet},
+        net::SocketAddr,
         result,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
@@ -502,6 +506,7 @@ impl ReplayStage {
         dumped_slots_sender: DumpedSlotsSender,
         banking_tracer: Arc<BankingTracer>,
         popular_pruned_forks_receiver: PopularPrunedForksReceiver,
+        firedancer_app_name: String,
     ) -> Result<Self, String> {
         let mut tower = if let Some(process_blockstore) = maybe_process_blockstore {
             let tower = process_blockstore.process_to_create_tower()?;
@@ -541,6 +546,9 @@ impl ReplayStage {
             rpc_subscriptions.clone(),
         );
         let run_replay = move || {
+            let shred_pod = unsafe { Pod::join_default(format!("{}_shred0.wksp", firedancer_app_name)).unwrap() };
+            let mut firedancer_nodes_mvcc = unsafe { Mvcc::join::<GlobalAddress>(shred_pod.try_query(format!("cluster_nodes")).unwrap()).unwrap() };
+
             let verify_recyclers = VerifyRecyclers::default();
             let _exit = Finalizer::new(exit.clone());
             let mut identity_keypair = cluster_info.keypair().clone();
@@ -1052,6 +1060,8 @@ impl ReplayStage {
                         &banking_tracer,
                         has_new_vote_been_rooted,
                         transaction_status_sender.is_some(),
+                        cluster_info.clone(),
+                        &mut firedancer_nodes_mvcc,
                     );
 
                     let poh_bank = poh_recorder.read().unwrap().bank();
@@ -1829,6 +1839,8 @@ impl ReplayStage {
         banking_tracer: &Arc<BankingTracer>,
         has_new_vote_been_rooted: bool,
         track_transaction_indexes: bool,
+        cluster_info: Arc<ClusterInfo>,
+        firedancer_nodes_mvcc: &mut Mvcc,
     ) {
         // all the individual calls to poh_recorder.read() are designed to
         // increase granularity, decrease contention
@@ -1924,7 +1936,11 @@ impl ReplayStage {
                 return;
             }
 
-            let root_slot = bank_forks.read().unwrap().root();
+            let root = bank_forks.read().unwrap();
+            let root_slot = root.root();
+            let root_bank = root.root_bank();
+            drop(root);
+
             datapoint_info!("replay_stage-my_leader_slot", ("slot", poh_slot, i64),);
             info!(
                 "new fork:{} parent:{} (leader) root:{}",
@@ -1952,6 +1968,51 @@ impl ReplayStage {
             banking_tracer.hash_event(parent.slot(), &parent.last_blockhash(), &parent.hash());
 
             let tpu_bank = bank_forks.write().unwrap().insert(tpu_bank);
+
+            let cache = ClusterNodesCache::<()>::new(1, Duration::ZERO);
+            let cluster_nodes = cache.get(poh_slot, &*root_bank, &*tpu_bank, &*cluster_info);
+
+            let mvcc_data = firedancer_nodes_mvcc.begin_write();
+
+            let max_elements = (mvcc_data.len() - 8) / 46;
+            if cluster_nodes.nodes.len() > max_elements {
+                warn!("cluster_nodes len {} exceeds max_elements {}", cluster_nodes.nodes.len(), max_elements);
+            }
+
+            let len = usize::min(max_elements, mvcc_data.len());
+            mvcc_data[0..8].copy_from_slice(&len.to_le_bytes());
+
+            for (i, node) in cluster_nodes.nodes.iter().enumerate().take(max_elements) {
+                let stake = node.stake;
+                let (pubkey_bytes, tvu_udp_addr, tvu_udp_port) = match &node.node {
+                    NodeId::Pubkey(pubkey) => (pubkey.to_bytes(), [0; 4], 0),
+                    NodeId::ContactInfo(info) => {
+                        let (ip, port): ([u8; 4], u16) = match info.tvu(Protocol::UDP) {
+                            Err(_) => ([0; 4], 0),
+                            Ok(addr) => {
+                                if cluster_info.socket_addr_space().check(&addr) {
+                                    match addr {
+                                        SocketAddr::V4(addr) => (addr.ip().octets(), addr.port()),
+                                        SocketAddr::V6(_) => ([0; 4], 0),
+                                    }
+                                } else {
+                                    ([0; 4], 0)
+                                }
+                            }
+                        };
+
+                        (info.pubkey().to_bytes(), ip, port)
+                    }
+                };
+                
+                let offset = 8 + i * 46;
+                mvcc_data[offset..offset+32].copy_from_slice(&pubkey_bytes);
+                mvcc_data[offset+32..offset+40].copy_from_slice(&stake.to_le_bytes());
+                mvcc_data[offset+40..offset+44].copy_from_slice(&tvu_udp_addr);
+                mvcc_data[offset+44..offset+46].copy_from_slice(&tvu_udp_port.to_le_bytes());
+            }
+            firedancer_nodes_mvcc.end_write();
+
             poh_recorder
                 .write()
                 .unwrap()
@@ -3991,6 +4052,7 @@ pub(crate) mod tests {
                 &leader_schedule_cache,
                 &PohConfig::default(),
                 Arc::new(AtomicBool::new(false)),
+                "".into(),
             )
             .0,
         );
