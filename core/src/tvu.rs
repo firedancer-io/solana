@@ -138,6 +138,7 @@ impl Tvu {
         connection_cache: &Arc<ConnectionCache>,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
         banking_tracer: Arc<BankingTracer>,
+        firedancer_app_name: String,
     ) -> Result<Self, String> {
         let TvuSockets {
             repair: repair_socket,
@@ -306,6 +307,7 @@ impl Tvu {
             dumped_slots_sender,
             banking_tracer,
             popular_pruned_forks_receiver,
+            firedancer_app_name,
         )?;
 
         let ledger_cleanup_service = tvu_config.max_ledger_shreds.map(|max_ledger_shreds| {
