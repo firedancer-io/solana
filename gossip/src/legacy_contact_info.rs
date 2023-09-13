@@ -20,11 +20,11 @@ use {
     Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, AbiExample, Deserialize, Serialize,
 )]
 pub struct LegacyContactInfo {
-    id: Pubkey,
+    pub id: Pubkey,
     /// gossip address
     gossip: SocketAddr,
     /// address to connect to for replication
-    tvu: SocketAddr,
+    pub tvu: SocketAddr,
     /// address to forward shreds to
     tvu_forwards: SocketAddr,
     /// address to send repair responses to
