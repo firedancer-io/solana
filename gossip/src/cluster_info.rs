@@ -2836,7 +2836,7 @@ pub struct Sockets {
     pub tpu: Vec<UdpSocket>,
     pub tpu_forwards: Vec<UdpSocket>,
     pub tpu_vote: Vec<UdpSocket>,
-    pub broadcast: Vec<UdpSocket>,
+    // pub broadcast: Vec<UdpSocket>,
     pub repair: UdpSocket,
     pub retransmit_sockets: Vec<UdpSocket>,
     pub serve_repair: UdpSocket,
@@ -2877,7 +2877,7 @@ impl Node {
         let rpc_addr = SocketAddr::new(localhost_ip_addr, rpc_port);
         let rpc_pubsub_port = find_available_port_in_range(localhost_ip_addr, port_range).unwrap();
         let rpc_pubsub_addr = SocketAddr::new(localhost_ip_addr, rpc_pubsub_port);
-        let broadcast = vec![UdpSocket::bind(&unspecified_bind_addr).unwrap()];
+        // let broadcast = vec![UdpSocket::bind(&unspecified_bind_addr).unwrap()];
         let retransmit_socket = UdpSocket::bind(&unspecified_bind_addr).unwrap();
         let serve_repair = UdpSocket::bind(&localhost_bind_addr).unwrap();
         let ancestor_hashes_requests = UdpSocket::bind(&unspecified_bind_addr).unwrap();
@@ -2927,7 +2927,7 @@ impl Node {
                 tpu: vec![tpu],
                 tpu_forwards: vec![tpu_forwards],
                 tpu_vote: vec![tpu_vote],
-                broadcast,
+                // broadcast,
                 repair,
                 retransmit_sockets: vec![retransmit_socket],
                 serve_repair,
@@ -2976,7 +2976,7 @@ impl Node {
         let (_, retransmit_socket) = Self::bind(bind_ip_addr, port_range);
         let (repair_port, repair) = Self::bind(bind_ip_addr, port_range);
         let (serve_repair_port, serve_repair) = Self::bind(bind_ip_addr, port_range);
-        let (_, broadcast) = Self::bind(bind_ip_addr, port_range);
+        // let (_, broadcast) = Self::bind(bind_ip_addr, port_range);
         let (_, ancestor_hashes_requests) = Self::bind(bind_ip_addr, port_range);
 
         let rpc_port = find_available_port_in_range(bind_ip_addr, port_range).unwrap();
@@ -3018,7 +3018,7 @@ impl Node {
                 tpu: vec![tpu],
                 tpu_forwards: vec![tpu_forwards],
                 tpu_vote: vec![tpu_vote],
-                broadcast: vec![broadcast],
+                // broadcast: vec![broadcast],
                 repair,
                 retransmit_sockets: vec![retransmit_socket],
                 serve_repair,
@@ -3077,8 +3077,8 @@ impl Node {
         let (repair_port, repair) = Self::bind(bind_ip_addr, port_range);
         let (serve_repair_port, serve_repair) = Self::bind(bind_ip_addr, port_range);
 
-        let (_, broadcast) =
-            multi_bind_in_range(bind_ip_addr, port_range, 4).expect("broadcast multi_bind");
+        // let (_, broadcast) =
+        //     multi_bind_in_range(bind_ip_addr, port_range, 4).expect("broadcast multi_bind");
 
         let (_, ancestor_hashes_requests) = Self::bind(bind_ip_addr, port_range);
 
@@ -3109,7 +3109,7 @@ impl Node {
                 tpu: vec![], // tpu_sockets,
                 tpu_forwards: vec![], // tpu_forwards_sockets,
                 tpu_vote: vec![], // tpu_vote_sockets,
-                broadcast,
+                // broadcast,
                 repair,
                 retransmit_sockets,
                 serve_repair,
