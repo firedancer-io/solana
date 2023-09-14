@@ -579,7 +579,7 @@ impl BankingStage {
         use core::arch::x86::_rdtsc as rdtsc;
 
         let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query(format!("mcache{}", id)).unwrap()).unwrap();
-        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query(format!("dcache{}", id)).unwrap()).unwrap();
+        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query(format!("dcache{}", id)).unwrap(), 0).unwrap(); /* MTU doesn't matter, we are only a reader */
         let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("fseq{}", id)).unwrap()).unwrap();
 
         in_fseq.set(FSeqDiag::PublishedCount as u64, 0);

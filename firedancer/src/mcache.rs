@@ -17,6 +17,9 @@ pub struct MCache {
     _workspace: Workspace,
 }
 
+unsafe impl Sync for MCache {}
+unsafe impl Send for MCache {}
+
 #[derive(Copy, Clone)]
 pub enum MCacheCtl {
     None
