@@ -36,6 +36,9 @@ pub struct FCtl<'a, 'b> {
     _slow: PhantomData<&'b mut u64>,
 }
 
+unsafe impl<'a, 'b> Sync for FCtl<'a, 'b> {}
+unsafe impl<'a, 'b> Send for FCtl<'a, 'b> {}
+
 impl<'a, 'b> Drop for FCtl<'a, 'b> {
     fn drop(&mut self) {
         unsafe { tango::fd_fctl_leave(self.fctl) };
