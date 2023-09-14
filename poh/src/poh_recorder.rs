@@ -18,7 +18,7 @@ use {
         entry::{hash_transactions, Entry},
         poh::Poh,
     },
-    solana_firedancer::{GlobalAddress, Pod, ULong},
+    solana_firedancer::{DCache, FCtl, FSeq, GlobalAddress, MCache, MCacheCtl, Pod, ULong},
     solana_ledger::{
         blockstore::Blockstore,
         genesis_utils::{create_genesis_config, GenesisConfigInfo},
@@ -281,7 +281,7 @@ pub struct PohRecorder {
     start_tick_height: u64,        // first tick_height this recorder will observe
     tick_cache: Vec<(Entry, u64)>, // cache of entry and its tick_height
     working_bank: Option<WorkingBank>,
-    sender: Sender<WorkingBankEntry>,
+    // sender: Sender<WorkingBankEntry>,
     poh_timing_point_sender: Option<PohTimingSender>,
     leader_first_tick_height_including_grace_ticks: Option<u64>,
     leader_last_tick_height: u64, // zero if none
@@ -305,6 +305,10 @@ pub struct PohRecorder {
     leader_bank_notifier: Arc<LeaderBankNotifier>,
     pub is_exited: Arc<AtomicBool>,
     firedancer_poh_slot: ULong,
+    firedancer_mcache: MCache,
+    firedancer_dcache: DCache,
+    firedancer_fctl: FCtl<'static, 'static>,
+    firedancer_cr_avail: u64,
 }
 
 impl PohRecorder {
@@ -630,6 +634,29 @@ impl PohRecorder {
         let _ = self.flush_cache(false);
     }
 
+    unsafe fn firedancer_send(bank: &Arc<Bank>, mcache: &mut MCache, dcache: &mut DCache, fctl: &mut FCtl, cr_avail: &mut u64, entry: &Entry, tick: u64) {
+        while *cr_avail == 0 {
+            *cr_avail = fctl.tx_cr_update(*cr_avail, mcache);
+            std::hint::spin_loop();
+        };
+
+        let memory = dcache.write(u16::MAX.into());
+        memory[0..8].copy_from_slice(&bank.slot().to_le_bytes());
+        memory[8..16].copy_from_slice(&(bank.slot() - bank.parent_slot()).to_le_bytes());
+        memory[16..24].copy_from_slice(&bank.max_tick_height().to_le_bytes());
+        memory[24..32].copy_from_slice(&(bank.tick_height() % bank.ticks_per_slot()).to_le_bytes());
+        memory[32..40].copy_from_slice(&tick.to_le_bytes());
+
+        // serializing guaranteed to succeed, since pack will not create an entry that would not fit
+        // in USHORT_MAX, otherwise panic.
+        let mut writer = std::io::Cursor::new(&mut memory[40..]);
+        bincode::serialize_into(&mut writer, entry).unwrap();
+        let size: u64 = 40 + writer.position();
+        mcache.publish(0, dcache.chunk(), size, MCacheCtl::None, 0, 0);
+        *cr_avail -= 1;
+        dcache.compact_next(size);
+    }
+
     // Flush cache will delay flushing the cache for a bank until it past the WorkingBank::min_tick_height
     // On a record flush will flush the cache at the WorkingBank::min_tick_height, since a record
     // occurs after the min_tick_height was generated
@@ -653,7 +680,7 @@ impl PohRecorder {
             .iter()
             .take_while(|x| x.1 <= working_bank.max_tick_height)
             .count();
-        let mut send_result: std::result::Result<(), SendError<WorkingBankEntry>> = Ok(());
+        // let mut send_result: std::result::Result<(), SendError<WorkingBankEntry>> = Ok(());
 
         if entry_count > 0 {
             trace!(
@@ -666,10 +693,21 @@ impl PohRecorder {
 
             for tick in &self.tick_cache[..entry_count] {
                 working_bank.bank.register_tick(&tick.0.hash);
-                send_result = self.sender.send((working_bank.bank.clone(), tick.clone()));
-                if send_result.is_err() {
-                    break;
+                unsafe {
+                     /* blocks if backpressured */
+                    Self::firedancer_send(
+                        &working_bank.bank,
+                        &mut self.firedancer_mcache,
+                        &mut self.firedancer_dcache,
+                        &mut self.firedancer_fctl,
+                        &mut self.firedancer_cr_avail,
+                        &tick.0,
+                        tick.1);
                 }
+                // send_result = self.sender.send((working_bank.bank.clone(), tick.clone()));
+                // if send_result.is_err() {
+                //     break;
+                // }
             }
         }
         if self.tick_height >= working_bank.max_tick_height {
@@ -683,14 +721,14 @@ impl PohRecorder {
             self.start_tick_height = working_slot * self.ticks_per_slot + 1;
             self.clear_bank();
         }
-        if send_result.is_err() {
-            info!("WorkingBank::sender disconnected {:?}", send_result);
-            // revert the cache, but clear the working bank
-            self.clear_bank();
-        } else {
+        // if send_result.is_err() {
+        //     info!("WorkingBank::sender disconnected {:?}", send_result);
+        //     // revert the cache, but clear the working bank
+        //     self.clear_bank();
+        // } else {
             // commit the flush
             let _ = self.tick_cache.drain(..entry_count);
-        }
+        // }
 
         Ok(())
     }
@@ -881,20 +919,31 @@ impl PohRecorder {
 
             if let Some(poh_entry) = record_mixin_res {
                 let num_transactions = transactions.len();
-                let (send_entry_res, send_entry_time) = measure!(
+                let (_, send_entry_time) = measure!(
                     {
                         let entry = Entry {
                             num_hashes: poh_entry.num_hashes,
                             hash: poh_entry.hash,
                             transactions,
                         };
-                        let bank_clone = working_bank.bank.clone();
-                        self.sender.send((bank_clone, (entry, self.tick_height)))
+                        // let bank_clone = working_bank.bank.clone();
+                        // self.sender.send((bank_clone, (entry, self.tick_height)))
+                        unsafe {
+                            /* blocks if backpressured */
+                            Self::firedancer_send(
+                                &working_bank.bank,
+                                &mut self.firedancer_mcache,
+                                &mut self.firedancer_dcache,
+                                &mut self.firedancer_fctl,
+                                &mut self.firedancer_cr_avail,
+                                &entry,
+                                self.tick_height);
+                        };
                     },
                     "send_poh_entry",
                 );
                 self.send_entry_us += send_entry_time.as_us();
-                send_entry_res?;
+                //send_entry_res?;
                 let starting_transaction_index =
                     working_bank.transaction_index.map(|transaction_index| {
                         let next_starting_transaction_index =
@@ -927,9 +976,15 @@ impl PohRecorder {
         poh_timing_point_sender: Option<PohTimingSender>,
         is_exited: Arc<AtomicBool>,
         firedancer_app_name: String,
-    ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
+    ) -> (Self, /* Receiver<WorkingBankEntry>, */ Receiver<Record>) {
         let pack_pod = unsafe { Pod::join_default(format!("{}_pack0.wksp", firedancer_app_name)).unwrap() };
+        let shred_pod = unsafe { Pod::join_default(format!("{}_shred0.wksp", firedancer_app_name)).unwrap() };
         let firedancer_poh_slot = unsafe { ULong::join::<GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
+        let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(shred_pod.try_query("in_mcache").unwrap()).unwrap() };
+        let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(shred_pod.try_query("in_dcache").unwrap(), u16::MAX.into()).unwrap() };
+        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(shred_pod.try_query("in_fseq").unwrap()).unwrap() };
+
+        let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
 
         let tick_number = 0;
         let poh = Arc::new(Mutex::new(Poh::new_with_slot_info(
@@ -942,7 +997,7 @@ impl PohRecorder {
             ticks_per_slot,
             poh_config.target_tick_duration.as_nanos() as u64,
         );
-        let (sender, receiver) = unbounded();
+        // let (sender, receiver) = unbounded();
         let (record_sender, record_receiver) = unbounded();
         let (leader_first_tick_height_including_grace_ticks, leader_last_tick_height, grace_ticks) =
             Self::compute_leader_slot_tick_heights(next_leader_slot, ticks_per_slot);
@@ -952,7 +1007,7 @@ impl PohRecorder {
                 tick_height,
                 tick_cache: vec![],
                 working_bank: None,
-                sender,
+                // sender,
                 poh_timing_point_sender,
                 clear_bank_signal,
                 start_bank,
@@ -979,8 +1034,12 @@ impl PohRecorder {
                 leader_bank_notifier: Arc::default(),
                 is_exited,
                 firedancer_poh_slot,
+                firedancer_mcache,
+                firedancer_dcache,
+                firedancer_fctl,
+                firedancer_cr_avail: 0, /* first loop will refresh */
             },
-            receiver,
+            // receiver,
             record_receiver,
         )
     }
@@ -1001,7 +1060,7 @@ impl PohRecorder {
         poh_config: &PohConfig,
         is_exited: Arc<AtomicBool>,
         firedancer_app_name: String,
-    ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
+    ) -> (Self, /* Receiver<WorkingBankEntry>, */ Receiver<Record>) {
         Self::new_with_clear_signal(
             tick_height,
             last_entry_hash,
@@ -1063,7 +1122,7 @@ pub fn create_test_recorder(
     };
     let exit = Arc::new(AtomicBool::new(false));
     let poh_config = poh_config.unwrap_or_default();
-    let (mut poh_recorder, entry_receiver, record_receiver) = PohRecorder::new(
+    let (mut poh_recorder, /* entry_receiver, */ record_receiver) = PohRecorder::new(
         bank.tick_height(),
         bank.last_blockhash(),
         bank.clone(),
@@ -1089,7 +1148,7 @@ pub fn create_test_recorder(
         record_receiver,
     );
 
-    (exit, poh_recorder, poh_service, entry_receiver)
+    (exit, poh_recorder, poh_service, unbounded().1)
 }
 
 #[cfg(test)]
