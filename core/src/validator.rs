@@ -860,7 +860,7 @@ impl Validator {
         );
 
         let startup_verification_complete;
-        let (poh_recorder, entry_receiver, record_receiver) = {
+        let (poh_recorder, /* entry_receiver, */ record_receiver) = {
             let bank = &bank_forks.read().unwrap().working_bank();
             startup_verification_complete = Arc::clone(bank.get_startup_verification_complete());
             PohRecorder::new_with_clear_signal(
@@ -1086,7 +1086,7 @@ impl Validator {
 
         let vote_tracker = Arc::<VoteTracker>::default();
 
-        let (retransmit_slots_sender, retransmit_slots_receiver) = unbounded();
+        // let (retransmit_slots_sender, retransmit_slots_receiver) = unbounded();
         let (verified_vote_sender, verified_vote_receiver) = unbounded();
         let (gossip_verified_vote_hash_sender, gossip_verified_vote_hash_receiver) = unbounded();
         let (cluster_confirmed_slot_sender, cluster_confirmed_slot_receiver) = unbounded();
@@ -1144,7 +1144,7 @@ impl Validator {
             cache_block_meta_sender,
             entry_notification_sender.clone(),
             vote_tracker.clone(),
-            retransmit_slots_sender,
+            // retransmit_slots_sender,
             gossip_verified_vote_hash_receiver,
             verified_vote_receiver,
             replay_vote_sender.clone(),
@@ -1173,23 +1173,23 @@ impl Validator {
         let tpu = Tpu::new(
             &cluster_info,
             &poh_recorder,
-            entry_receiver,
-            retransmit_slots_receiver,
+            // entry_receiver,
+            // retransmit_slots_receiver,
             TpuSockets {
                 transactions: node.sockets.tpu,
                 transaction_forwards: node.sockets.tpu_forwards,
                 vote: node.sockets.tpu_vote,
-                broadcast: node.sockets.broadcast,
+                // broadcast: node.sockets.broadcast,
                 transactions_quic: node.sockets.tpu_quic,
                 transactions_forwards_quic: node.sockets.tpu_forwards_quic,
             },
             &rpc_subscriptions,
             transaction_status_sender,
-            entry_notification_sender,
+            // entry_notification_sender,
             &blockstore,
-            &config.broadcast_stage_type,
+            // &config.broadcast_stage_type,
             &exit,
-            node.info.shred_version(),
+            // node.info.shred_version(),
             vote_tracker,
             bank_forks.clone(),
             verified_vote_sender,
@@ -1271,15 +1271,15 @@ impl Validator {
             "local gossip address: {}",
             node.sockets.gossip.local_addr().unwrap()
         );
-        info!(
-            "local broadcast address: {}",
-            node.sockets
-                .broadcast
-                .first()
-                .unwrap()
-                .local_addr()
-                .unwrap()
-        );
+        // info!(
+        //     "local broadcast address: {}",
+        //     node.sockets
+        //         .broadcast
+        //         .first()
+        //         .unwrap()
+        //         .local_addr()
+        //         .unwrap()
+        // );
         info!(
             "local repair address: {}",
             node.sockets.repair.local_addr().unwrap()

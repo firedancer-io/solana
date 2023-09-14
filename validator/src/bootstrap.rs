@@ -101,7 +101,7 @@ fn verify_reachable_ports(
     }
     if verify_address(&node.info.tvu(Protocol::UDP).ok()) {
         udp_sockets.extend(node.sockets.tvu.iter());
-        udp_sockets.extend(node.sockets.broadcast.iter());
+        // udp_sockets.extend(node.sockets.broadcast.iter());
         udp_sockets.extend(node.sockets.retransmit_sockets.iter());
     }
     if verify_address(&node.info.tvu_forwards().ok()) {

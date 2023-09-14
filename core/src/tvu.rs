@@ -4,7 +4,7 @@
 use {
     crate::{
         banking_trace::BankingTracer,
-        broadcast_stage::RetransmitSlotsSender,
+        // broadcast_stage::RetransmitSlotsSender,
         cache_block_meta_service::CacheBlockMetaSender,
         cluster_info_vote_listener::{
             GossipDuplicateConfirmedSlotsReceiver, GossipVerifiedVoteHashReceiver,
@@ -122,7 +122,7 @@ impl Tvu {
         cache_block_meta_sender: Option<CacheBlockMetaSender>,
         entry_notification_sender: Option<EntryNotifierSender>,
         vote_tracker: Arc<VoteTracker>,
-        retransmit_slots_sender: RetransmitSlotsSender,
+        // retransmit_slots_sender: RetransmitSlotsSender,
         gossip_verified_vote_hash_receiver: GossipVerifiedVoteHashReceiver,
         verified_vote_receiver: VerifiedVoteReceiver,
         replay_vote_sender: ReplayVoteSender,
@@ -292,7 +292,7 @@ impl Tvu {
             maybe_process_block_store,
             vote_tracker,
             cluster_slots,
-            retransmit_slots_sender,
+            // retransmit_slots_sender,
             ancestor_duplicate_slots_receiver,
             replay_vote_sender,
             gossip_confirmed_slots_receiver,
