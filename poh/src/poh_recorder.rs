@@ -980,6 +980,7 @@ impl PohRecorder {
         let pack_pod = unsafe { Pod::join_default(format!("{}_pack.wksp", firedancer_app_name)).unwrap() };
         let shred_pod = unsafe { Pod::join_default(format!("{}_bank_shred.wksp", firedancer_app_name)).unwrap() };
         let firedancer_poh_slot = unsafe { ULong::join::<GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
+        // Right now, we only support 1 shred tile
         let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(shred_pod.try_query("mcache0").unwrap()).unwrap() };
         let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(shred_pod.try_query("dcache0").unwrap(), u16::MAX.into()).unwrap() };
         let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(shred_pod.try_query("fseq0").unwrap()).unwrap() };
