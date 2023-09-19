@@ -120,6 +120,9 @@ impl MCache {
   }
 
   pub fn publish(&mut self, sig: u64, chunk: u64, sz: u64, ctl: MCacheCtl, tsorig: u64, tspub: u64) {
-      unsafe { tango::fd_mcache_publish(self.mline, self.depth, self.sequence_number, sig, chunk, sz, ctl.ctl(), tsorig, tspub) }
+      unsafe {
+        tango::fd_mcache_publish(self.mline, self.depth, self.sequence_number, sig, chunk, sz, ctl.ctl(), tsorig, tspub);
+        self.sequence_number = self.sequence_number.wrapping_add(1);
+      }
   }
 }

@@ -1980,7 +1980,7 @@ impl ReplayStage {
                 warn!("cluster_nodes len {} exceeds max_elements {}", cluster_nodes.nodes.len(), max_elements);
             }
 
-            let len = usize::min(max_elements, mvcc_data.len());
+            let len = usize::min(max_elements, cluster_nodes.nodes.len());
             let total_stake = cluster_nodes.nodes.iter().map(|node| node.stake).sum::<u64>();
             mvcc_data[0..8].copy_from_slice(&len.to_le_bytes());
             mvcc_data[8..16].copy_from_slice(&total_stake.to_le_bytes());

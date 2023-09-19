@@ -978,11 +978,11 @@ impl PohRecorder {
         firedancer_app_name: String,
     ) -> (Self, /* Receiver<WorkingBankEntry>, */ Receiver<Record>) {
         let pack_pod = unsafe { Pod::join_default(format!("{}_pack0.wksp", firedancer_app_name)).unwrap() };
-        let shred_pod = unsafe { Pod::join_default(format!("{}_shred0.wksp", firedancer_app_name)).unwrap() };
+        let shred_pod = unsafe { Pod::join_default(format!("{}_bank_shred0.wksp", firedancer_app_name)).unwrap() };
         let firedancer_poh_slot = unsafe { ULong::join::<GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
-        let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(shred_pod.try_query("in_mcache").unwrap()).unwrap() };
-        let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(shred_pod.try_query("in_dcache").unwrap(), u16::MAX.into()).unwrap() };
-        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(shred_pod.try_query("in_fseq").unwrap()).unwrap() };
+        let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(shred_pod.try_query("mcache0").unwrap()).unwrap() };
+        let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(shred_pod.try_query("dcache0").unwrap(), u16::MAX.into()).unwrap() };
+        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(shred_pod.try_query("fseq0").unwrap()).unwrap() };
 
         let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
 
