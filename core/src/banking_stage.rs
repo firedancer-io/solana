@@ -355,7 +355,7 @@ impl BankingStage {
         firedancer_app_name: String,
     ) -> Self {
         let in_pod = unsafe { Pod::join_default(format!("{}_pack_bank0.wksp", firedancer_app_name)).unwrap() };
-        let num_threads: u32 = in_pod.try_query::<u64, &str>("num_tiles").unwrap() as u32;
+        let num_threads: u32 = in_pod.try_query::<u64, &str>("cnt").unwrap() as u32;
 
         assert!(num_threads + 1 >= MIN_TOTAL_THREADS, "num_threads {} must be >= {}", num_threads, MIN_TOTAL_THREADS);
         // Single thread to generate entries from many banks.
@@ -487,7 +487,7 @@ impl BankingStage {
                                 Self::bank_tile(
                                     poh_recorder.as_ref(),
                                     &consumer,
-                                    id,
+                                    id as u64,
                                     &pod,
                                     &in_pod,
                                 );
@@ -569,7 +569,7 @@ impl BankingStage {
     unsafe fn bank_tile(
         poh_recorder: &RwLock<PohRecorder>,
         consumer: &Consumer,
-        id: u32,
+        id: u64,
         pod: &Pod,
         in_pod: &Pod,
     ) {
@@ -578,8 +578,8 @@ impl BankingStage {
         #[cfg(target_arch = "x86")]
         use core::arch::x86::_rdtsc as rdtsc;
 
-        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query(format!("mcache{}", id)).unwrap()).unwrap();
-        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query(format!("dcache{}", id)).unwrap(), 0).unwrap(); /* MTU doesn't matter, we are only a reader */
+        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache").unwrap()).unwrap();
+        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache").unwrap(), 0).unwrap(); /* MTU doesn't matter, we are only a reader */
         let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("fseq{}", id)).unwrap()).unwrap();
 
         in_fseq.set(FSeqDiag::PublishedCount as u64, 0);
@@ -594,45 +594,22 @@ impl BankingStage {
         let mut in_accum_ovrnp_cnt: u64 = 0;
         let mut in_accum_ovrnr_cnt: u64 = 0;
 
-        let cr_max: u64 = in_mcache.depth(); // in_pod.query("cr_max");
-        let cr_resume: u64 = in_pod.query("cr_resume");
-        let cr_refill: u64 = in_pod.query("cr_refill");
-        let lazy: i64 = in_pod.query("lazy");
-
-        let in_fctl = FCtl::new(1, cr_max, cr_resume, cr_refill, &in_fseq).unwrap();
-        let lazy = if lazy <= 0 { housekeeping_default_interval_nanos(in_mcache.depth()) } else { lazy };
-        let in_async_min = minimum_housekeeping_tick_interval(lazy);
+        let lazy = housekeeping_default_interval_nanos(in_mcache.depth());
+        let async_min = minimum_housekeeping_tick_interval(lazy);
 
         let cnc = Cnc::join::<GlobalAddress>(pod.try_query("cnc").unwrap()).unwrap();
         if cnc.query() != CncSignal::Boot as u64 {
             panic!("cnc not in boot state");
         }
-        let mut in_backpressure = true;
 
-        cnc.set(CncDiag::InBackpressure as u64, 1);
+        cnc.set(CncDiag::InBackpressure as u64, 0);
         cnc.set(CncDiag::BackpressureCount as u64, 0);
 
-        let mut back_mcache = MCache::join::<GlobalAddress>(in_pod.try_query(format!("mcache-back{}", id)).unwrap()).unwrap();
-        let back_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("fseq-back{}", id)).unwrap()).unwrap();
-
-        back_fseq.set(FSeqDiag::SlowCount as u64, 0); // Managed by the fctl
-
-        let cr_max: u64 = back_mcache.depth(); // pod.query("cr_max");
-        let cr_resume: u64 = pod.query("cr_resume");
-        let cr_refill: u64 = pod.query("cr_refill");
-        let lazy: i64 = pod.query("lazy");
-
-        let back_fctl = FCtl::new(1, cr_max, cr_resume, cr_refill, &back_fseq).unwrap();
-        let lazy = if lazy <= 0 { housekeeping_default_interval_nanos(back_mcache.depth()) } else { lazy };
-        let async_min = minimum_housekeeping_tick_interval(lazy);
-
-        let seed = pod.try_query("seed").unwrap_or(id);
+        let seed = pod.try_query("seed").unwrap_or(id.try_into().unwrap());
         let mut rng = Rng::new(seed, 0).unwrap();
 
         let mut now = rdtsc();
         let mut then = now;
-
-        let mut back_cr_avail = 0;
 
         cnc.signal(CncSignal::Run as u64);
         loop {
@@ -650,9 +627,6 @@ impl BankingStage {
                 in_accum_ovrnp_cnt = 0;
                 in_accum_ovrnr_cnt = 0;
 
-                // Send synchronization info
-                back_mcache.housekeep();
-
                 // Send diagnostic info
                 cnc.heartbeat(now as i64);
 
@@ -665,26 +639,8 @@ impl BankingStage {
                     break;
                 }
 
-                // Receive flow control credits
-                back_cr_avail = back_fctl.tx_cr_update(back_cr_avail, &back_mcache);
-                if in_backpressure && back_cr_avail > 0 {
-                    cnc.set(CncDiag::InBackpressure as u64, 0);
-                    in_backpressure = false;
-                }
-
                 // Reload housekeeping timer
                 then = now + rng.async_reload(async_min);
-            }
-
-            // Check if we are backpressured
-            if back_cr_avail == 0 {
-                if !in_backpressure {
-                    cnc.set(CncDiag::InBackpressure as u64, 1);
-                    cnc.increment(CncDiag::BackpressureCount as u64, 1);
-                    in_backpressure = true;
-                }
-                std::hint::spin_loop();
-                now = rdtsc();
             }
 
             match in_mcache.poll() {
@@ -700,6 +656,12 @@ impl BankingStage {
             };
 
             now = rdtsc();
+
+            let sig = in_mcache.sig();
+            if sig != id {
+                now = rdtsc();
+                continue;
+            }
             
             const FD_TXN_P_T_SZ: usize = std::mem::size_of::<firedancer_sys::ballet::fd_txn_p_t>();
             const FD_TXN_MTU: u32 = firedancer_sys::ballet::FD_TXN_MTU;
@@ -764,7 +726,6 @@ impl BankingStage {
             }
 
             let mut index = 0;
-            let mut retryable_txns = vec![];
             while index < txns.len() {
                 let end = usize::min(index + consumer::MAX_NUM_TRANSACTIONS_PER_BATCH, txns.len());
                 let chunk = &txns[index..end];
@@ -786,7 +747,7 @@ impl BankingStage {
                                 TransactionError::WouldExceedMaxAccountCostLimit |
                                 TransactionError::WouldExceedAccountDataBlockLimit => panic!("pack tile produced invalid block"),
 
-                                other => (), // drop transaction on the floor, errors like AlreadyProcessed etc...
+                                _ => (), // drop transaction on the floor, errors like AlreadyProcessed etc...
                             }
                         }
                     }
@@ -801,13 +762,9 @@ impl BankingStage {
                 match output.commit_transactions_result {
                     Err(err) => {
                         match err {
-                            solana_poh::poh_recorder::PohRecorderError::MaxHeightReached => {
-                                // We timed out on the block, cannot commit any more transactions
-                                for i in index..txns.len() {
-                                    retryable_txns.push(i);
-                                }
-                                break;
-                            }
+                            // We timed out on the block, cannot commit any more transactions. This shouldn't
+                            // happen if the pack tile is behaving correctly, so just drop these for now.
+                            solana_poh::poh_recorder::PohRecorderError::MaxHeightReached => (),
                             solana_poh::poh_recorder::PohRecorderError::MinHeightNotReached => panic!("started processing too early"),
                             solana_poh::poh_recorder::PohRecorderError::SendError(err) => panic!("error sending to poh recorder {:#?}", err),
                         }
@@ -817,13 +774,6 @@ impl BankingStage {
 
                 index = end;
             }
-
-            // Send retryable transactions back to pack tile
-            let mut sig: u64 = 0;
-            for index in retryable_txns {
-                sig |= 1 << index;
-            }
-            back_mcache.publish(sig, 0, 0, MCacheCtl::None, 0, 0);
 
             // We don't need to send anything onwards to the next stage, since it
             // happens during the blockstore.

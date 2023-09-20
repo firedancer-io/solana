@@ -73,6 +73,10 @@ impl MCache {
       self.depth
   }
 
+  pub fn sig(&self) -> u64 {
+    unsafe { (*self.mline).__bindgen_anon_1.sig }
+  }
+
   pub fn chunk(&self) -> u32 {
       unsafe { (*self.mline).__bindgen_anon_1.chunk }
   }
