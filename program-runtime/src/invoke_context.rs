@@ -48,10 +48,9 @@ use {
 
 pub extern crate bs58;
 
-use std::{env, path::Path, fs::OpenOptions, io::Write};
+use std::{env, path::Path, fs::{OpenOptions, self}, io::Write};
 
 use std::backtrace::Backtrace;
-
 // use itertools::Itertools;
 use serde::Serialize;
 use serde_with::serde_as;
@@ -1047,11 +1046,11 @@ struct TestCase {
     transaction_accounts: Vec<TestTransactionAccount>,
     resulting_accounts: Vec<TestAccountSharedData>,
     instruction_accounts: Vec<TestInstructionAccount>,
-    expected_result: Result<(), InstructionError>,
+    expected_result: String,
 }
 
 impl TestCase {
-    fn print(&self, mainnet: bool) {
+    fn print(&self, mainnet: bool, format: &str) {
         let mainnet_str = if mainnet {
             "-mainnet"
         } else {
@@ -1061,18 +1060,47 @@ impl TestCase {
             Ok(s) => s,
             Err(_) => return,
         };
-        let path_str = format!("{}/firedancer-testbins/{}{}.json", HOME_DIR, pkg_name, mainnet_str);
-        let path = Path::new(path_str.as_str());
+        if format == "json" {
+            let path_str = format!("{}/firedancer-testbins/{}{}.json", HOME_DIR, pkg_name, mainnet_str);
+            let path = Path::new(path_str.as_str());
 
-        let mut file = match OpenOptions::new().append(true).create(true).open(&path) {
-            Err(_why) => return,
-            Ok(file) => file,
-        };
-        let s = serde_json::to_string(self).unwrap() + ",";
-        match file.write_all(s.as_bytes()) {
-            Err(_why) => return,
-            Ok(_) => (),
+            let mut file = match OpenOptions::new().append(true).create(true).open(&path) {
+                Err(_why) => return,
+                Ok(file) => file,
+            };
+            let s = serde_json::to_string(self).unwrap() + ",";
+            match file.write_all(s.as_bytes()) {
+                Err(_why) => return,
+                Ok(_) => (),
+            }
         }
+        else {
+            let fname = self.name.replace("::", "-");
+            let path_str = match self.get_next_num(format!("{}/firedancer-testbins/", HOME_DIR).as_str(), format) {
+                Ok(num) => format!("{}/firedancer-testbins/{:0>4}-{}-{}{}.bin", HOME_DIR, num, pkg_name, fname, mainnet_str),
+                Err(e) => format!("{}/firedancer-testbins/{}-{}{}.bin", HOME_DIR, pkg_name, fname, mainnet_str),
+            };
+            let path = Path::new(path_str.as_str());
+
+            let file = match OpenOptions::new().write(true).create(true).open(&path) {
+                Err(_why) => return,
+                Ok(file) => file,
+            };
+
+            let _s = bincode::serialize_into(file, self).unwrap();
+        }
+    }
+    fn get_next_num(&self, path: &str, format: &str) -> std::io::Result<usize> {
+        let mut count: usize = 0;
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let f_name = entry.file_name();
+            if f_name.to_string_lossy().ends_with(format) {
+                count = count + 1;
+            }
+        }
+
+        Ok(count)
     }
 }
 
@@ -1348,7 +1376,7 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
     transaction_accounts.pop();
 
     let bts = Backtrace::capture().to_string();
-    let test_case = TestCase {
+    let mut test_case = TestCase {
         name: std::thread::current().name().unwrap().to_string(),
         program_id: loader_id.clone(),
         backtrace: bts,
@@ -1367,9 +1395,14 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
                 is_signer: acc_meta.is_signer,
                 is_writable: acc_meta.is_writable }
         }).collect(),
-        expected_result: expected_result.clone(),
+        expected_result: String::new(),
     };
-    test_case.print(mainnet);
+    if expected_result.is_err() {
+        test_case.expected_result = format!("{:?}", expected_result.as_ref().unwrap_err());
+    }
+
+    test_case.print(mainnet, "json");
+    test_case.print(mainnet, "bin");
     // println!("test_case_json {}", serde_json::to_string(&).unwrap());
 
     transaction_accounts

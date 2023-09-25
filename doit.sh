@@ -1,4 +1,9 @@
-#!/bin/bash -f
+#!/bin/bash
+
+# cleanup
+rm -f $HOME/firedancer-testbins/*.json $HOME/firedancer-testbins/*.bin
+
+set -f
 
 export RUST_BACKTRACE=1
 
