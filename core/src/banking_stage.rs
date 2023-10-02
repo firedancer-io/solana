@@ -354,7 +354,7 @@ impl BankingStage {
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
         firedancer_app_name: String,
     ) -> Self {
-        let in_pod = unsafe { Pod::join_default(format!("{}_pack_bank0.wksp", firedancer_app_name)).unwrap() };
+        let in_pod = unsafe { Pod::join_default(format!("{}_pack_bank.wksp", firedancer_app_name)).unwrap() };
         let num_threads: u32 = in_pod.try_query::<u64, &str>("cnt").unwrap() as u32;
 
         assert!(num_threads + 1 >= MIN_TOTAL_THREADS, "num_threads {} must be >= {}", num_threads, MIN_TOTAL_THREADS);
@@ -463,7 +463,7 @@ impl BankingStage {
         bank_thread_hdls.extend(
             (0..num_threads)
                 .map(|id| {
-                    let pod = unsafe { Pod::join_default(format!("{}_bank{}.wksp", firedancer_app_name, id)).unwrap() };
+                    let pod = unsafe { Pod::join_default(format!("{}_bank.wksp", firedancer_app_name)).unwrap() };
 
                     let poh_recorder = poh_recorder.clone();
 
@@ -598,7 +598,7 @@ impl BankingStage {
         let lazy = housekeeping_default_interval_nanos(in_mcache.depth());
         let async_min = minimum_housekeeping_tick_interval(lazy);
 
-        let cnc = Cnc::join::<GlobalAddress>(pod.try_query("cnc").unwrap()).unwrap();
+        let cnc = Cnc::join::<GlobalAddress>(pod.try_query(format!("cnc{}", id)).unwrap()).unwrap();
         if cnc.query() != CncSignal::Boot as u64 {
             panic!("cnc not in boot state");
         }
