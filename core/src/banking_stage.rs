@@ -19,12 +19,12 @@ use {
     crate::{
         banking_stage::committer::Committer,
         banking_trace::BankingPacketReceiver,
-        latest_unprocessed_votes::{LatestUnprocessedVotes, VoteSource},
+        latest_unprocessed_votes::{LatestUnprocessedVotes, /* VoteSource */},
         leader_slot_banking_stage_metrics::LeaderSlotMetricsTracker,
         qos_service::QosService,
         tracer_packet_stats::TracerPacketStats,
-        unprocessed_packet_batches::*,
-        unprocessed_transaction_storage::{ThreadType, UnprocessedTransactionStorage},
+        // unprocessed_packet_batches::*,
+        unprocessed_transaction_storage::{/* ThreadType,*/ UnprocessedTransactionStorage},
     },
     crossbeam_channel::RecvTimeoutError,
     histogram::Histogram,
@@ -312,7 +312,7 @@ impl BankingStage {
         poh_recorder: &Arc<RwLock<PohRecorder>>,
         non_vote_receiver: BankingPacketReceiver,
         tpu_vote_receiver: BankingPacketReceiver,
-        gossip_vote_receiver: BankingPacketReceiver,
+        // gossip_vote_receiver: BankingPacketReceiver,
         transaction_status_sender: Option<TransactionStatusSender>,
         replay_vote_sender: ReplayVoteSender,
         log_messages_bytes_limit: Option<usize>,
@@ -326,7 +326,7 @@ impl BankingStage {
             poh_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
-            gossip_vote_receiver,
+            // gossip_vote_receiver,
             // Self::num_threads(),
             transaction_status_sender,
             replay_vote_sender,
@@ -344,7 +344,7 @@ impl BankingStage {
         poh_recorder: &Arc<RwLock<PohRecorder>>,
         non_vote_receiver: BankingPacketReceiver,
         tpu_vote_receiver: BankingPacketReceiver,
-        gossip_vote_receiver: BankingPacketReceiver,
+        // gossip_vote_receiver: BankingPacketReceiver,
         // num_threads: u32,
         transaction_status_sender: Option<TransactionStatusSender>,
         replay_vote_sender: ReplayVoteSender,
@@ -377,64 +377,98 @@ impl BankingStage {
         // Many banks that process transactions in parallel.
         // let bank_thread_hdls: Vec<JoinHandle<()>> = (0..num_threads)
         //
-        // FIREDANCER: Only one bank thread is retained, for gossip
-        let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..1)
-            .map(|id| {
-                let (packet_receiver, unprocessed_transaction_storage) =
-                    match (id, should_split_voting_threads) {
-                        (0, false) => (
-                            gossip_vote_receiver.clone(),
-                            UnprocessedTransactionStorage::new_transaction_storage(
-                                UnprocessedPacketBatches::with_capacity(batch_limit),
-                                ThreadType::Voting(VoteSource::Gossip),
-                            ),
-                        ),
-                        (0, true) => (
-                            gossip_vote_receiver.clone(),
-                            UnprocessedTransactionStorage::new_vote_storage(
-                                latest_unprocessed_votes.clone(),
-                                VoteSource::Gossip,
-                            ),
-                        ),
-                        (1, false) => (
-                            tpu_vote_receiver.clone(),
-                            UnprocessedTransactionStorage::new_transaction_storage(
-                                UnprocessedPacketBatches::with_capacity(batch_limit),
-                                ThreadType::Voting(VoteSource::Tpu),
-                            ),
-                        ),
-                        (1, true) => (
-                            tpu_vote_receiver.clone(),
-                            UnprocessedTransactionStorage::new_vote_storage(
-                                latest_unprocessed_votes.clone(),
-                                VoteSource::Tpu,
-                            ),
-                        ),
-                        _ => (
-                            non_vote_receiver.clone(),
-                            UnprocessedTransactionStorage::new_transaction_storage(
-                                UnprocessedPacketBatches::with_capacity(batch_limit),
-                                ThreadType::Transactions,
-                            ),
-                        ),
-                    };
+        // let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..num_threads)
+        //     .map(|id| {
+        //         let (packet_receiver, unprocessed_transaction_storage) =
+        //             match (id, should_split_voting_threads) {
+        //                 (0, false) => (
+        //                     gossip_vote_receiver.clone(),
+        //                     UnprocessedTransactionStorage::new_transaction_storage(
+        //                         UnprocessedPacketBatches::with_capacity(batch_limit),
+        //                         ThreadType::Voting(VoteSource::Gossip),
+        //                     ),
+        //                 ),
+        //                 (0, true) => (
+        //                     gossip_vote_receiver.clone(),
+        //                     UnprocessedTransactionStorage::new_vote_storage(
+        //                         latest_unprocessed_votes.clone(),
+        //                         VoteSource::Gossip,
+        //                     ),
+        //                 ),
+        //                 (1, false) => (
+        //                     tpu_vote_receiver.clone(),
+        //                     UnprocessedTransactionStorage::new_transaction_storage(
+        //                         UnprocessedPacketBatches::with_capacity(batch_limit),
+        //                         ThreadType::Voting(VoteSource::Tpu),
+        //                     ),
+        //                 ),
+        //                 (1, true) => (
+        //                     tpu_vote_receiver.clone(),
+        //                     UnprocessedTransactionStorage::new_vote_storage(
+        //                         latest_unprocessed_votes.clone(),
+        //                         VoteSource::Tpu,
+        //                     ),
+        //                 ),
+        //                 _ => (
+        //                     non_vote_receiver.clone(),
+        //                     UnprocessedTransactionStorage::new_transaction_storage(
+        //                         UnprocessedPacketBatches::with_capacity(batch_limit),
+        //                         ThreadType::Transactions,
+        //                     ),
+        //                 ),
+        //             };
+        // 
+        //        let mut packet_receiver =
+        //            PacketReceiver::new(id, packet_receiver, bank_forks.clone());
+        //        let poh_recorder = poh_recorder.clone();
+        //
+        //         let committer = Committer::new(
+        //             transaction_status_sender.clone(),
+        //             replay_vote_sender.clone(),
+        //             prioritization_fee_cache.clone(),
+        //         );
+        //         let decision_maker = DecisionMaker::new(cluster_info.id(), poh_recorder.clone());
+        //         let forwarder = Forwarder::new(
+        //             poh_recorder.clone(),
+        //             bank_forks.clone(),
+        //             cluster_info.clone(),
+        //             connection_cache.clone(),
+        //             data_budget.clone(),
+        //         );
+        //         let consumer = Consumer::new(
+        //             committer,
+        //             poh_recorder.read().unwrap().new_recorder(),
+        //             QosService::new(id),
+        //             log_messages_bytes_limit,
+        //         );
+        //
+        //         Builder::new()
+        //             .name(format!("solBanknStgTx{id:02}"))
+        //             .spawn(move || {
+        //                 Self::process_loop(
+        //                     &mut packet_receiver,
+        //                     &decision_maker,
+        //                     &forwarder,
+        //                     &consumer,
+        //                     id,
+        //                     unprocessed_transaction_storage,
+        //                 );
+        //             })
+        //             .unwrap()
+        //     })
+        //     .collect();
 
-                let mut packet_receiver =
-                    PacketReceiver::new(id, packet_receiver, bank_forks.clone());
+        // FIREDANCER: The rest of the bank threads are Firedancer tiles
+        let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..num_threads)
+            .map(|id| {
+                let pod = unsafe { Pod::join_default(format!("{}_bank{}.wksp", firedancer_app_name, id)).unwrap() };
+
                 let poh_recorder = poh_recorder.clone();
 
                 let committer = Committer::new(
                     transaction_status_sender.clone(),
                     replay_vote_sender.clone(),
                     prioritization_fee_cache.clone(),
-                );
-                let decision_maker = DecisionMaker::new(cluster_info.id(), poh_recorder.clone());
-                let forwarder = Forwarder::new(
-                    poh_recorder.clone(),
-                    bank_forks.clone(),
-                    cluster_info.clone(),
-                    connection_cache.clone(),
-                    data_budget.clone(),
                 );
                 let consumer = Consumer::new(
                     committer,
@@ -443,59 +477,23 @@ impl BankingStage {
                     log_messages_bytes_limit,
                 );
 
+                let in_pod = in_pod.clone();
                 Builder::new()
-                    .name(format!("solBanknStgTx{id:02}"))
+                    .name(format!("solBanknStgTx{:02}", id + 1))
                     .spawn(move || {
-                        Self::process_loop(
-                            &mut packet_receiver,
-                            &decision_maker,
-                            &forwarder,
-                            &consumer,
-                            id,
-                            unprocessed_transaction_storage,
-                        );
+                        unsafe {
+                            Self::bank_tile(
+                                poh_recorder.as_ref(),
+                                &consumer,
+                                id,
+                                &pod,
+                                &in_pod,
+                            );
+                        }
                     })
                     .unwrap()
             })
-            .collect();
-
-        // FIREDANCER: The rest of the bank threads are Firedancer tiles
-        bank_thread_hdls.extend(
-            (0..num_threads)
-                .map(|id| {
-                    let pod = unsafe { Pod::join_default(format!("{}_bank{}.wksp", firedancer_app_name, id)).unwrap() };
-
-                    let poh_recorder = poh_recorder.clone();
-
-                    let committer = Committer::new(
-                        transaction_status_sender.clone(),
-                        replay_vote_sender.clone(),
-                        prioritization_fee_cache.clone(),
-                    );
-                    let consumer = Consumer::new(
-                        committer,
-                        poh_recorder.read().unwrap().new_recorder(),
-                        QosService::new(id),
-                        log_messages_bytes_limit,
-                    );
-
-                    let in_pod = in_pod.clone();
-                    Builder::new()
-                        .name(format!("solBanknStgTx{:02}", id + 1))
-                        .spawn(move || {
-                            unsafe {
-                                Self::bank_tile(
-                                    poh_recorder.as_ref(),
-                                    &consumer,
-                                    id,
-                                    &pod,
-                                    &in_pod,
-                                );
-                            }
-                        })
-                        .unwrap()
-                })
-                .collect::<Vec<_>>());
+            .collect::<Vec<_>>();
 
         Self { bank_thread_hdls }
     }

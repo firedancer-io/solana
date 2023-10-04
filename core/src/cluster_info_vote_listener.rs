@@ -1,6 +1,6 @@
 use {
     crate::{
-        banking_trace::{BankingPacketBatch, BankingPacketSender},
+        // banking_trace::{BankingPacketBatch, BankingPacketSender},
         optimistic_confirmation_verifier::OptimisticConfirmationVerifier,
         replay_stage::DUPLICATE_THRESHOLD,
         result::{Error, Result},
@@ -12,6 +12,7 @@ use {
     },
     crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Select, Sender},
     log::*,
+    solana_firedancer::{MCache, MCacheCtl, DCache, FCtl, Pod, GlobalAddress, FSeq},
     solana_gossip::{
         cluster_info::{ClusterInfo, GOSSIP_SLEEP_MILLIS},
         crds::Cursor,
@@ -233,7 +234,7 @@ impl ClusterInfoVoteListener {
     pub fn new(
         exit: Arc<AtomicBool>,
         cluster_info: Arc<ClusterInfo>,
-        verified_packets_sender: BankingPacketSender,
+        // verified_packets_sender: BankingPacketSender,
         poh_recorder: Arc<RwLock<PohRecorder>>,
         vote_tracker: Arc<VoteTracker>,
         bank_forks: Arc<RwLock<BankForks>>,
@@ -244,6 +245,7 @@ impl ClusterInfoVoteListener {
         blockstore: Arc<Blockstore>,
         bank_notification_sender: Option<BankNotificationSender>,
         cluster_confirmed_slot_sender: GossipDuplicateConfirmedSlotsSender,
+        firedancer_app_name: String,
     ) -> Self {
         let (verified_vote_label_packets_sender, verified_vote_label_packets_receiver) =
             unbounded();
@@ -273,8 +275,9 @@ impl ClusterInfoVoteListener {
                     exit_,
                     verified_vote_label_packets_receiver,
                     poh_recorder,
-                    &verified_packets_sender,
+                    // &verified_packets_sender,
                     bank_forks_clone,
+                    firedancer_app_name,
                 );
             })
             .unwrap();
@@ -378,12 +381,20 @@ impl ClusterInfoVoteListener {
         exit: Arc<AtomicBool>,
         verified_vote_label_packets_receiver: VerifiedLabelVotePacketsReceiver,
         poh_recorder: Arc<RwLock<PohRecorder>>,
-        verified_packets_sender: &BankingPacketSender,
+        // verified_packets_sender: &BankingPacketSender,
         bank_forks: Arc<RwLock<BankForks>>,
+        firedancer_app_name: String,
     ) -> Result<()> {
         let mut verified_vote_packets = VerifiedVotePackets::default();
         let mut time_since_lock = Instant::now();
         let mut bank_vote_sender_state_option: Option<BankVoteSenderState> = None;
+
+        let pack_pod = unsafe { Pod::join_default(format!("{}_dedup_pack.wksp", firedancer_app_name)).unwrap() };
+        let mut firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("gossip-mcache").unwrap()).unwrap() };
+        let mut firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("gossip-dcache").unwrap(), 1232).unwrap() };
+        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("gossip-fseq").unwrap()).unwrap() };
+        let mut firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
+        let mut firedancer_cr_avail = 0; // first loop will refresh
 
         loop {
             if exit.load(Ordering::Relaxed) {
@@ -419,8 +430,12 @@ impl ClusterInfoVoteListener {
                     Self::check_for_leader_bank_and_send_votes(
                         &mut bank_vote_sender_state_option,
                         current_working_bank,
-                        verified_packets_sender,
+                        // verified_packets_sender,
                         &verified_vote_packets,
+                        &mut firedancer_mcache,
+                        &mut firedancer_dcache,
+                        &mut firedancer_fctl,
+                        &mut firedancer_cr_avail,
                     )?;
                 }
             }
@@ -430,8 +445,12 @@ impl ClusterInfoVoteListener {
     fn check_for_leader_bank_and_send_votes(
         bank_vote_sender_state_option: &mut Option<BankVoteSenderState>,
         current_working_bank: Arc<Bank>,
-        verified_packets_sender: &BankingPacketSender,
+        // verified_packets_sender: &BankingPacketSender,
         verified_vote_packets: &VerifiedVotePackets,
+        mcache: &mut MCache,
+        dcache: &mut DCache,
+        fctl: &mut FCtl,
+        cr_avail: &mut u64,
     ) -> Result<()> {
         // We will take this lock at most once every `BANK_SEND_VOTES_LOOP_SLEEP_MS`
         if let Some(bank_vote_sender_state) = bank_vote_sender_state_option {
@@ -471,13 +490,37 @@ impl ClusterInfoVoteListener {
         for single_validator_votes in gossip_votes_iterator {
             bank_send_votes_stats.num_votes_sent += single_validator_votes.len();
             bank_send_votes_stats.num_batches_sent += 1;
-            verified_packets_sender
-                .send(BankingPacketBatch::new((single_validator_votes, None)))?;
+            // verified_packets_sender
+            //     .send(BankingPacketBatch::new((single_validator_votes, None)))?;
+            unsafe {
+                ClusterInfoVoteListener::firedancer_send(single_validator_votes, mcache, dcache, fctl, cr_avail);
+            }
         }
         filter_gossip_votes_timing.stop();
         bank_send_votes_stats.total_elapsed += filter_gossip_votes_timing.as_us();
 
         Ok(())
+    }
+
+    unsafe fn firedancer_send(votes: Vec<packet::PacketBatch>, mcache: &mut MCache, dcache: &mut DCache, fctl: &mut FCtl, cr_avail: &mut u64) {
+        for vote in votes {
+            while *cr_avail == 0 {
+                *cr_avail = fctl.tx_cr_update(*cr_avail, mcache);
+                std::hint::spin_loop();
+            }
+
+            assert!(vote.len() == 1);
+            let txn = &vote[0];
+            let data = txn.data(..).unwrap(); /* discard packets already dropped by now */
+
+            assert!(data.len() <= 1232);
+            let memory = dcache.write(data.len());
+            memory.copy_from_slice(data);
+
+            mcache.publish(1, dcache.chunk(), data.len().try_into().unwrap(), MCacheCtl::None, 0, 0);
+            *cr_avail -= 1;
+            dcache.compact_next(data.len().try_into().unwrap());
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

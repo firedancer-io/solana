@@ -211,12 +211,12 @@ impl Tpu {
             SigVerifyStage::new(vote_packet_receiver, verifier, "tpu-vote-verifier")
         };
 
-        let (gossip_vote_sender, gossip_vote_receiver) =
-            banking_tracer.create_channel_gossip_vote();
+        // let (gossip_vote_sender, gossip_vote_receiver) =
+        //     banking_tracer.create_channel_gossip_vote();
         let cluster_info_vote_listener = ClusterInfoVoteListener::new(
             exit.clone(),
             cluster_info.clone(),
-            gossip_vote_sender,
+            // gossip_vote_sender,
             poh_recorder.clone(),
             vote_tracker,
             bank_forks.clone(),
@@ -227,6 +227,7 @@ impl Tpu {
             blockstore.clone(),
             bank_notification_sender,
             cluster_confirmed_slot_sender,
+            firedancer_app_name.clone(),
         );
 
         let banking_stage = BankingStage::new(
@@ -234,7 +235,7 @@ impl Tpu {
             poh_recorder,
             non_vote_receiver,
             tpu_vote_receiver,
-            gossip_vote_receiver,
+            // gossip_vote_receiver,
             transaction_status_sender,
             replay_vote_sender,
             log_messages_bytes_limit,
