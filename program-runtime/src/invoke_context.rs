@@ -1076,8 +1076,9 @@ impl TestCase {
         }
         else {
             let fname = self.name.replace("::", "-");
-            let path_str = match self.get_next_num(format!("{}/firedancer-testbins/", HOME_DIR).as_str(), format) {
-                Ok(num) => format!("{}/firedancer-testbins/{:0>4}-{}-{}{}.bin", HOME_DIR, num, pkg_name, fname, mainnet_str),
+
+            let path_str = match self.get_next_num(format!("{}/firedancer-testbins/", HOME_DIR).as_str(), format!("{}-{}", pkg_name, fname).as_str(), format) {
+                Ok(num) => format!("{}/firedancer-testbins/{}-{}{}-{:0>4}.bin", HOME_DIR, pkg_name, fname, mainnet_str, num),
                 Err(e) => format!("{}/firedancer-testbins/{}-{}{}.bin", HOME_DIR, pkg_name, fname, mainnet_str),
             };
             let path = Path::new(path_str.as_str());
@@ -1090,12 +1091,12 @@ impl TestCase {
             let _s = bincode::serialize_into(file, self).unwrap();
         }
     }
-    fn get_next_num(&self, path: &str, format: &str) -> std::io::Result<usize> {
+    fn get_next_num(&self, path: &str, pattern: &str, format: &str) -> std::io::Result<usize> {
         let mut count: usize = 0;
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let f_name = entry.file_name();
-            if f_name.to_string_lossy().ends_with(format) {
+            if f_name.to_string_lossy().ends_with(format) && f_name.to_string_lossy().contains(pattern) {
                 count = count + 1;
             }
         }

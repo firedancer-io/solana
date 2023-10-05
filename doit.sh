@@ -1,7 +1,9 @@
 #!/bin/bash
 
+TESTBIN_DIR=$HOME/firedancer-testbins
+
 # cleanup
-rm -f $HOME/firedancer-testbins/*.json $HOME/firedancer-testbins/*.bin
+rm -f $TESTBIN_DIR/*.json $TESTBIN_DIR/*.bin
 
 set -f
 
@@ -86,7 +88,16 @@ pushd programs/zk-token-proof
   PKG_NAME=solana-zk-token-proof-program cargo test --package solana-zk-token-proof-program --lib -- --nocapture
 popd
 
+set +f
 
+binfiles=0
+for f in $(ls $TESTBIN_DIR)
+do
+	if [[ "$f" = *".bin" ]]; then
+		mv $TESTBIN_DIR/$f $TESTBIN_DIR/$binfiles-$f
+		binfiles=$((binfiles+1))
+	fi
+done
 
 
 #./cargo test --package solana-vote-program --lib -- --nocapture --test-threads=1 |& grep test_case_json out | sed -e 's/.*test_case_json//' -e 's/$/,/' | sort -u > solana-vote-program-mainnet.json
