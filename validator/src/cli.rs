@@ -1387,6 +1387,26 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 .possible_values(BlockProductionMethod::cli_names())
                 .help(BlockProductionMethod::cli_message())
         )
+        // FIREDANCER: Application name argument is added to the CLI. This is the equivalent
+        // of the "name" argument in the firedancer config.toml file, and determines where
+        // we will look in the filesystem to try and load workspace files.
+        .arg(
+            Arg::with_name("firedancer_app_name")
+                .long("firedancer-app-name")
+                .value_name("NAME")
+                .takes_value(true)
+                .help("Name of this firedancer app")
+        )
+        // FIREDANCER: Port number to use for the TPU. This is passed from the Firedancer
+        // config.toml file and then gets wired up to the Solana Labs gossip code so that
+        // the correct port gets broadcast.
+        .arg(
+            Arg::with_name("firedancer_tpu_port")
+                .long("firedancer-tpu-port")
+                .takes_value(true)
+                .validator(is_parsable::<u16>)
+                .help("Port to use for receiving transactions in the TPU."),
+        )
         .args(&get_deprecated_arguments())
         .after_help("The default subcommand is run")
         .subcommand(

@@ -491,6 +491,9 @@ impl Validator {
         tpu_connection_pool_size: usize,
         tpu_enable_udp: bool,
         admin_rpc_service_post_init: Arc<RwLock<Option<AdminRpcRequestMetadataPostInit>>>,
+        // FIREDANCER: App name is passed down to the banking stage so it can initialize
+        // from a workspace.
+        firedancer_app_name: String,
     ) -> Result<Self, String> {
         let id = identity_keypair.pubkey();
         assert_eq!(&id, node.info.pubkey());
@@ -1302,6 +1305,9 @@ impl Validator {
             &prioritization_fee_cache,
             config.block_production_method.clone(),
             config.generator_config.clone(),
+            // FIREDANCER: App name is passed down to the banking stage so it can initialize
+            // from a workspace.
+            firedancer_app_name,
         );
 
         let cluster_type = bank_forks.read().unwrap().root_bank().cluster_type();

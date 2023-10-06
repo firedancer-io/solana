@@ -429,7 +429,7 @@ zstd = "0.11.2"
 # every time the branch is rebased.
 paste = "1.0.12"
 firedancer-sys = { path = "../ffi/rust/firedancer-sys" }
-solana-firedancer = { path = "firedancer", version = "=1.16.18" }
+solana-firedancer = { path = "firedancer", version = "=1.17.4" }
 
 [patch.crates-io]
 # for details, see https://github.com/solana-labs/crossbeam/commit/fd279d707025f0e60951e429bf778b4813d1b6bf
