@@ -1769,6 +1769,10 @@ where
         .map(ContactInfo::new_gossip_entry_point)
         .collect::<Vec<_>>();
 
+    // FIREDANCER: Get application name and port from the CLI.
+    let firedancer_app_name = value_t_or_exit!(matches, "firedancer_app_name", String);
+    let firedancer_tpu_port = value_t_or_exit!(matches, "firedancer_tpu_port", u16);
+
     let mut node = Node::new_with_external_ip(
         &identity_keypair.pubkey(),
         &gossip_addr,
@@ -1776,6 +1780,9 @@ where
         bind_address,
         public_tpu_addr,
         public_tpu_forwards_addr,
+        // FIREDANCER: Desired port for the TPU is passed in from the config file, so it
+        // can be broadcast correctly via. gossip.
+        firedancer_tpu_port,
     );
 
     if restricted_repair_only_mode {
@@ -1869,6 +1876,9 @@ where
         tpu_connection_pool_size,
         tpu_enable_udp,
         admin_service_post_init,
+        // FIREDANCER: Pass app name through to TPU so it can load IPC channels from
+        // the shared workspaces correctly.
+        firedancer_app_name,
     )
     .unwrap_or_else(|e| {
         error!("Failed to start validator: {:?}", e);
