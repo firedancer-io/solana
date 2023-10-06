@@ -10,6 +10,11 @@ homepage = { workspace = true }
 license = { workspace = true }
 edition = { workspace = true }
 
+# FIREDANCER: Build as a static library so that it can be linked into the
+# firedancer binary.
+[lib]
+crate-type = ["staticlib"]
+
 [dependencies]
 chrono = { workspace = true, features = ["default", "serde"] }
 clap = { workspace = true }
