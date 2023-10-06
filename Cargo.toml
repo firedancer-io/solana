@@ -278,7 +278,10 @@ rcgen = "0.10.0"
 reed-solomon-erasure = "6.0.0"
 regex = "1.9.6"
 rolling-file = "0.2.0"
-reqwest = { version = "0.11.20", default-features = false }
+# FIREDANCER: We switch reqwest to using rustls so that OpenSSL is not linked,
+# which would cause conflicts with the OpenSSL that Firedancer is using.
+# reqwest = { version = "0.11.17", default-features = false }
+reqwest = { version = "0.11.20", default-features = false, features = ["rustls-tls"] }
 rpassword = "7.2"
 rustc_version = "0.4"
 rustls = { version = "0.21.7", default-features = false, features = ["quic"] }
@@ -426,7 +429,7 @@ zstd = "0.11.2"
 # every time the branch is rebased.
 paste = "1.0.12"
 firedancer-sys = { path = "../ffi/rust/firedancer-sys" }
-solana-firedancer = { path = "firedancer", version = "=1.16.15" }
+solana-firedancer = { path = "firedancer", version = "=1.16.18" }
 
 [patch.crates-io]
 # for details, see https://github.com/solana-labs/crossbeam/commit/fd279d707025f0e60951e429bf778b4813d1b6bf
