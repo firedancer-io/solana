@@ -635,6 +635,7 @@ impl PohRecorder {
     }
 
     unsafe fn firedancer_send(bank: &Arc<Bank>, mcache: &mut MCache, dcache: &mut DCache, fctl: &mut FCtl, cr_avail: &mut u64, entry: &Entry, tick: u64) {
+        warn!("Trying to send microblock {:#?} from PoH to FD. cr_avail: {}", entry.hash, *cr_avail);
         while *cr_avail == 0 {
             *cr_avail = fctl.tx_cr_update(*cr_avail, mcache);
             std::hint::spin_loop();
@@ -646,12 +647,13 @@ impl PohRecorder {
         memory[16..24].copy_from_slice(&bank.max_tick_height().to_le_bytes());
         memory[24..32].copy_from_slice(&(bank.tick_height() % bank.ticks_per_slot()).to_le_bytes());
         memory[32..40].copy_from_slice(&tick.to_le_bytes());
+        memory[40..48].copy_from_slice(&(1u64).to_le_bytes());
 
         // serializing guaranteed to succeed, since pack will not create an entry that would not fit
         // in USHORT_MAX, otherwise panic.
-        let mut writer = std::io::Cursor::new(&mut memory[40..]);
+        let mut writer = std::io::Cursor::new(&mut memory[48..]);
         bincode::serialize_into(&mut writer, entry).unwrap();
-        let size: u64 = 40 + writer.position();
+        let size: u64 = 48 + writer.position();
         mcache.publish(0, dcache.chunk(), size, MCacheCtl::None, 0, 0);
         *cr_avail -= 1;
         dcache.compact_next(size);

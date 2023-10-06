@@ -1984,6 +1984,9 @@ impl ReplayStage {
             let total_stake = cluster_nodes.nodes.iter().map(|node| node.stake).sum::<u64>();
             mvcc_data[0..8].copy_from_slice(&len.to_le_bytes());
             mvcc_data[8..16].copy_from_slice(&total_stake.to_le_bytes());
+            mvcc_data[16..24].copy_from_slice(&tpu_bank.epoch_schedule().get_first_slot_in_epoch(tpu_bank.epoch()).to_le_bytes());
+            mvcc_data[24..32].copy_from_slice(&tpu_bank.epoch_schedule().get_slots_in_epoch(tpu_bank.epoch()).to_le_bytes());
+            mvcc_data[32..40].copy_from_slice(&tpu_bank.epoch().to_le_bytes());
 
             for (i, node) in cluster_nodes.nodes.iter().enumerate().take(max_elements) {
                 let stake = node.stake;
@@ -2008,7 +2011,7 @@ impl ReplayStage {
                     }
                 };
                 
-                let offset = 16 + i * 46;
+                let offset = 40 + i * 46;
                 mvcc_data[offset..offset+32].copy_from_slice(&pubkey_bytes);
                 mvcc_data[offset+32..offset+40].copy_from_slice(&stake.to_le_bytes());
                 mvcc_data[offset+40..offset+44].copy_from_slice(&tvu_udp_addr);

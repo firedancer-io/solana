@@ -67,9 +67,9 @@ impl StakedNodesUpdaterService {
             .name("solStakedNodeUd".to_string())
             .spawn(move || {
                 let out_pod = unsafe { Pod::join_default(format!("{}_quic_verify.wksp", firedancer_app_name)).unwrap() };
-                let mut out_mvcc = unsafe { Mvcc::join::<GlobalAddress>(out_pod.try_query(format!("stake_weights")).unwrap()).unwrap() };
+                // let mut out_mvcc = unsafe { Mvcc::join::<GlobalAddress>(out_pod.try_query(format!("stake_weights")).unwrap()).unwrap() };
 
-                while !exit.load(Ordering::Relaxed) {
+                while !exit.load(Ordering::Relaxed) { /*
                     let stakes = {
                         let root_bank = bank_forks.read().unwrap().root_bank();
                         root_bank.staked_nodes()
@@ -81,7 +81,7 @@ impl StakedNodesUpdaterService {
                         &staked_nodes_overrides.read().unwrap());
 
                     let overrides = staked_nodes_overrides.read().unwrap().clone();
-                    *staked_nodes.write().unwrap() = StakedNodes::new(stakes, overrides);
+                    *staked_nodes.write().unwrap() = StakedNodes::new(stakes, overrides); */
                     std::thread::sleep(STAKE_REFRESH_CYCLE);
                 }
             })

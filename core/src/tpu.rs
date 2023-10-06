@@ -281,8 +281,8 @@ impl Tpu {
                 #[cfg(target_arch = "x86")]
                 use core::arch::x86::_rdtsc as rdtsc;
 
-                let in_pod = Pod::join_default(format!("{}_shred_store0.wksp", firedancer_app_name)).unwrap();
-                let pod = Pod::join_default(format!("{}_store0.wksp", firedancer_app_name)).unwrap();
+                let in_pod = Pod::join_default(format!("{}_shred_store.wksp", firedancer_app_name)).unwrap();
+                let pod = Pod::join_default(format!("{}_store.wksp", firedancer_app_name)).unwrap();
                 let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache").unwrap()).unwrap();
                 let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache").unwrap(), 0).unwrap(); /* MTU doesn't matter, we are only a reader */
                 let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query("fseq").unwrap()).unwrap();
@@ -371,8 +371,10 @@ impl Tpu {
                     let offset = u64::from_le_bytes(in_dcache.slice(chunk.into(), 16, 8).try_into().unwrap());
                     let shred_sz = u64::from_le_bytes(in_dcache.slice(chunk.into(), 24, 8).try_into().unwrap());
 
-                    assert!(shred_sz < stride);
-                    assert!((shred_cnt==0) || (offset + stride*(shred_cnt-1) + shred_sz < size.into()));
+                    warn!("shred_cnt: {}, stride: {}, offset: {}, shred_sz: {}", shred_cnt, stride, offset, shred_sz);
+
+                    assert!(shred_sz <= stride);
+                    assert!((shred_cnt==0) || (offset + stride*(shred_cnt-1) + shred_sz <= size.into()));
 
                     let shreds = (0..shred_cnt).map(|i| {
                         let shred_bytes = in_dcache.slice(chunk.into(), offset + stride*i, shred_sz);
@@ -394,6 +396,7 @@ impl Tpu {
                             shreds, /*leader_schedule:*/ None, /*is_trusted:*/ true,
                         )
                         .expect("Failed to insert shreds in blockstore");
+                    warn!("Inserted {} shreds into the blockstore. chunk:{}", shred_cnt, chunk);
 
                     in_accum_pub_cnt += shred_cnt as u64;
                     in_accum_pub_sz += size as u64;
