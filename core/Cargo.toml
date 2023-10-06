@@ -69,6 +69,10 @@ thiserror = { workspace = true }
 tokio = { version = "~1.14.1", features = ["full"] }
 trees = { workspace = true }
 
+# FIREDANCER: Add required Firedancer dependencies.
+firedancer-sys = { workspace = true }
+solana-firedancer = { workspace = true }
+
 [dev-dependencies]
 fs_extra = { workspace = true }
 matches = { workspace = true }
