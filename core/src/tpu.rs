@@ -227,6 +227,7 @@ impl Tpu {
             blockstore.clone(),
             bank_notification_sender,
             cluster_confirmed_slot_sender,
+            firedancer_app_name.clone(),
         );
 
         let banking_stage = BankingStage::new(

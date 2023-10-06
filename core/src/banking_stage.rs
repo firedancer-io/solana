@@ -377,8 +377,9 @@ impl BankingStage {
         // Many banks that process transactions in parallel.
         // let bank_thread_hdls: Vec<JoinHandle<()>> = (0..num_threads)
         //
-        // FIREDANCER: Only one bank thread is retained, for gossip
-        let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..1)
+        // FIREDANCER: Bank threads are Firedancer tiles, no need to spawn these.
+        //             Leave this dead code in to reduce merge conflicts.
+        let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..0)
             .map(|id| {
                 let (packet_receiver, unprocessed_transaction_storage) =
                     match (id, should_split_voting_threads) {
@@ -459,7 +460,7 @@ impl BankingStage {
             })
             .collect();
 
-        // FIREDANCER: The rest of the bank threads are Firedancer tiles
+        // FIREDANCER: Bank threads are Firedancer tiles
         bank_thread_hdls.extend(
             (0..num_threads)
                 .map(|id| {
