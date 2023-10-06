@@ -311,6 +311,9 @@ impl BankingStage {
         connection_cache: Arc<ConnectionCache>,
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
+        // FIREDANCER: Application name is passed through so we know where to find
+        // workspaces.
+        firedancer_app_name: String,
     ) -> Self {
         Self::new_num_threads(
             cluster_info,
@@ -325,6 +328,9 @@ impl BankingStage {
             connection_cache,
             bank_forks,
             prioritization_fee_cache,
+            // FIREDANCER: Application name is passed through so we know where to find
+            // workspaces.
+            firedancer_app_name,
         )
     }
 
@@ -342,6 +348,9 @@ impl BankingStage {
         connection_cache: Arc<ConnectionCache>,
         bank_forks: Arc<RwLock<BankForks>>,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
+        // FIREDANCER: Application name is passed through so we know where to find
+        // workspaces.
+        firedancer_app_name: String,
     ) -> Self {
         assert!(num_threads >= MIN_TOTAL_THREADS);
         // Single thread to generate entries from many banks.
@@ -361,7 +370,10 @@ impl BankingStage {
             })
             .unwrap_or(false);
         // Many banks that process transactions in parallel.
-        let bank_thread_hdls: Vec<JoinHandle<()>> = (0..num_threads)
+        // FIREDANCER: Only one bank thread is retained, for gossip, most banking will be done
+        // by Firedancer tiles.
+        // let bank_thread_hdls: Vec<JoinHandle<()>> = (0..num_threads)
+        let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..1)
             .map(|id| {
                 let (packet_receiver, unprocessed_transaction_storage) =
                     match (id, should_split_voting_threads) {
@@ -441,7 +453,274 @@ impl BankingStage {
                     .unwrap()
             })
             .collect();
+
+        // FIREDANCER: The rest of the bank threads are Firedancer tiles
+        let in_pod = unsafe { solana_firedancer::Pod::join_default(format!("{}_pack_bank.wksp", firedancer_app_name)).unwrap() };
+        let num_threads: u32 = in_pod.try_query::<u64, &str>("cnt").unwrap() as u32;
+        bank_thread_hdls.extend(
+            (0..num_threads)
+                .map(|id| {
+                    let pod = unsafe { solana_firedancer::Pod::join_default(format!("{}_bank.wksp", firedancer_app_name)).unwrap() };
+
+                    let poh_recorder = poh_recorder.clone();
+
+                    let committer = Committer::new(
+                        transaction_status_sender.clone(),
+                        replay_vote_sender.clone(),
+                        prioritization_fee_cache.clone(),
+                    );
+                    let consumer = Consumer::new(
+                        committer,
+                        poh_recorder.read().unwrap().new_recorder(),
+                        QosService::new(id),
+                        log_messages_bytes_limit,
+                    );
+
+                    let in_pod = in_pod.clone();
+                    Builder::new()
+                        .name(format!("solBanknStgTx{:02}", id + 1))
+                        .spawn(move || {
+                            unsafe {
+                                Self::firedancer_bank_tile(
+                                    poh_recorder.as_ref(),
+                                    &consumer,
+                                    id as u64,
+                                    &pod,
+                                    &in_pod,
+                                );
+                            }
+                        })
+                        .unwrap()
+                })
+                .collect::<Vec<_>>());
+
         Self { bank_thread_hdls }
+    }
+
+    /// FIREDANCER: Implements a run loop for the bank tile, one per thread.
+    unsafe fn firedancer_bank_tile(
+        poh_recorder: &RwLock<PohRecorder>,
+        consumer: &Consumer,
+        id: u64,
+        pod: &solana_firedancer::Pod,
+        in_pod: &solana_firedancer::Pod,
+    ) {
+        use solana_firedancer::*;
+        use std::net::{IpAddr, Ipv4Addr};
+        use solana_poh::poh_recorder::BankStart;
+        use solana_sdk::{transaction::{SanitizedTransaction, TransactionError}, packet::{PacketFlags, Meta, Packet}};
+        use crate::immutable_deserialized_packet::ImmutableDeserializedPacket;
+        
+        #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::_rdtsc as rdtsc;
+        #[cfg(target_arch = "x86")]
+        use core::arch::x86::_rdtsc as rdtsc;
+
+        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache").unwrap()).unwrap();
+        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache").unwrap(), 0).unwrap(); /* mtu of 0 is ok, it's read only */
+        let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("fseq{}", id)).unwrap()).unwrap();
+        let in_busy = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("busy{}", id)).unwrap()).unwrap();
+
+        in_fseq.set(FSeqDiag::PublishedCount as u64, 0);
+        in_fseq.set(FSeqDiag::PublishedSize as u64, 0);
+        in_fseq.set(FSeqDiag::FilteredCount as u64, 0);
+        in_fseq.set(FSeqDiag::FilteredSize as u64, 0);
+        in_fseq.set(FSeqDiag::OverrunPollingCount as u64, 0);
+        in_fseq.set(FSeqDiag::OverrunReadingCount as u64, 0);
+        in_fseq.set(FSeqDiag::SlowCount as u64, 0);
+        let mut in_accum_pub_cnt: u64 = 0;
+        let mut in_accum_pub_sz: u64 = 0;
+        let mut in_accum_ovrnp_cnt: u64 = 0;
+        let mut in_accum_ovrnr_cnt: u64 = 0;
+
+        let lazy = housekeeping_default_interval_nanos(in_mcache.depth());
+        let async_min = minimum_housekeeping_tick_interval(lazy);
+
+        let cnc = Cnc::join::<GlobalAddress>(pod.try_query(format!("cnc{}", id)).unwrap()).unwrap();
+        if cnc.query() != CncSignal::Boot as u64 {
+            panic!("cnc not in boot state");
+        }
+
+        cnc.set(CncDiag::InBackpressure as u64, 0);
+        cnc.set(CncDiag::BackpressureCount as u64, 0);
+
+        let seed = pod.try_query("seed").unwrap_or(id.try_into().unwrap());
+        let mut rng = Rng::new(seed, 0).unwrap();
+
+        let mut now = rdtsc();
+        let mut then = now;
+
+        cnc.signal(CncSignal::Run as u64);
+        loop {
+            // Tell producer that we are no longer busy processing this message.
+            in_busy.rx_cr_return(&in_mcache);
+
+            if now >= then {
+                // Send flow control credits
+                in_fseq.rx_cr_return(&in_mcache);
+
+                // Send synchronization info
+                in_fseq.increment(FSeqDiag::PublishedCount as u64, in_accum_pub_cnt);
+                in_fseq.increment(FSeqDiag::PublishedSize as u64, in_accum_pub_sz);
+                in_fseq.increment(FSeqDiag::OverrunPollingCount as u64, in_accum_ovrnp_cnt);
+                in_fseq.increment(FSeqDiag::OverrunReadingCount as u64, in_accum_ovrnr_cnt);
+                in_accum_pub_cnt = 0;
+                in_accum_pub_sz = 0;
+                in_accum_ovrnp_cnt = 0;
+                in_accum_ovrnr_cnt = 0;
+
+                // Send diagnostic info
+                cnc.heartbeat(now as i64);
+
+                // Receive command-and-control signals
+                let s = cnc.query();
+                if s != CncSignal::Run as u64 {
+                    if s != CncSignal::Halt as u64 {
+                        panic!("unexpected signal");
+                    }
+                    break;
+                }
+
+                // Reload housekeeping timer
+                then = now + rng.async_reload(async_min);
+            }
+
+            match in_mcache.poll() {
+                Poll::CaughtUp => {
+                    core::hint::spin_loop();
+                    now = rdtsc();
+                    continue;
+                },
+                Poll::Overrun => {
+                    in_accum_ovrnp_cnt += 1;
+                },
+                Poll::Ready => (),
+            };
+
+            let sig = in_mcache.sig();
+            if sig != id {
+                in_mcache.skip();
+                now = rdtsc();
+                continue;
+            }
+
+            now = rdtsc();
+            
+            const FD_TXN_P_T_SZ: usize = std::mem::size_of::<firedancer_sys::ballet::fd_txn_p_t>();
+            const FD_TXN_MTU: u32 = firedancer_sys::ballet::FD_TXN_MTU;
+
+            let size = in_mcache.size();
+            let chunk = in_mcache.chunk();
+            assert!(size % FD_TXN_P_T_SZ as u16 == 0, "size {} not a multiple of {}", size, FD_TXN_P_T_SZ);
+            let txn_count = size / FD_TXN_P_T_SZ as u16;
+
+            let bank_start: BankStart = match poh_recorder.read().unwrap().bank_start() {
+                Some(bank_start) => bank_start,
+                None => {
+                    now = rdtsc();
+                    continue;
+                }
+            };
+
+            let mut txns: Vec<SanitizedTransaction> = vec![];
+            (0..txn_count).for_each(|i| {
+                let packet_bytes = in_dcache.slice(chunk.into(), i as u64 * FD_TXN_P_T_SZ as u64, FD_TXN_P_T_SZ as u64);
+                let txn: *const firedancer_sys::ballet::fd_txn_p_t = packet_bytes.as_ptr() as *const firedancer_sys::ballet::fd_txn_p_t;
+
+                let flags = if (*txn).is_simple_vote != 0 {
+                    PacketFlags::SIMPLE_VOTE_TX
+                } else {
+                    PacketFlags::empty()
+                };
+
+                // Here's the first copy...
+                let mut txn_data: [u8; FD_TXN_MTU as usize] = [0; FD_TXN_MTU as usize];
+                txn_data[0..(*txn).payload_sz as usize].copy_from_slice(&packet_bytes[0..(*txn).payload_sz as usize]);
+                let packet = Packet::new(txn_data, Meta {
+                    size: (*txn).payload_sz as usize,
+                    addr: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+                    port: 0,
+                    flags,
+                });
+
+                // both ImmutableDeserializedPacket::new() and build_sanitized_transaction() do
+                // a copy of the transaction data, which we could possibly eliminate, but also
+                // the data is owned after this, so we no longer need the inbound dcache to be
+                // valid. Unclear if the vec push also does a copy?
+                txns.push(
+                    ImmutableDeserializedPacket::new(packet).unwrap()
+                    .build_sanitized_transaction( // todo, this does a copy of the txn, eliminate
+                        &bank_start.working_bank.feature_set,
+                        bank_start.working_bank.vote_only_bank(),
+                        bank_start.working_bank.as_ref())
+                    .unwrap());
+            });
+
+            // Check that we weren't overrun while processing
+            match in_mcache.advance() {
+                Advance::Overrun => {
+                    in_accum_ovrnr_cnt += 1;
+                    now = rdtsc();
+                    continue;
+                },
+                Advance::Normal => (),
+            }
+
+            let mut index = 0;
+            while index < txns.len() {
+                let end = usize::min(index + consumer::MAX_NUM_TRANSACTIONS_PER_BATCH, txns.len());
+                let chunk = &txns[index..end];
+
+                // TODO: Do we need this?
+                // if bank_start.bank_creation_time.elapsed().as_nanos() <= bank_start.working_bank.ns_per_slot {
+                //     // Exit early ... drop transactions on the floor
+                //     unimplemented!();
+                // }
+                let batch = bank_start.working_bank.prepare_sanitized_batch_with_results(chunk, std::iter::repeat(Ok(())));
+                for result in batch.lock_results() {
+                    match result {
+                        Ok(()) => (),
+                        Err(err) => {
+                            match err {
+                                TransactionError::AccountInUse |
+                                TransactionError::WouldExceedMaxBlockCostLimit |
+                                TransactionError::WouldExceedMaxVoteCostLimit |
+                                TransactionError::WouldExceedMaxAccountCostLimit |
+                                TransactionError::WouldExceedAccountDataBlockLimit => panic!("pack tile produced invalid block {:#?}", err),
+
+                                _ => (), // drop transaction on the floor, errors like AlreadyProcessed etc...
+                            }
+                        }
+                    }
+                }
+                let output = consumer.execute_and_commit_transactions_locked(&bank_start.working_bank, &batch);
+                drop(batch); // explicit drop to unlock bank
+
+                if !output.retryable_transaction_indexes.is_empty() {
+                    panic!("pack tile produced invalid block");
+                }
+
+                match output.commit_transactions_result {
+                    Err(err) => {
+                        match err {
+                            // We timed out on the block, cannot commit any more transactions. This shouldn't
+                            // happen if the pack tile is behaving correctly, so just drop these for now.
+                            solana_poh::poh_recorder::PohRecorderError::MaxHeightReached => (),
+                            solana_poh::poh_recorder::PohRecorderError::MinHeightNotReached => panic!("started processing too early"),
+                            solana_poh::poh_recorder::PohRecorderError::SendError(err) => panic!("error sending to poh recorder {:#?}", err),
+                        }
+                    }
+                    Ok(_) => (), // some transactions might not be committed, but the errors cannot be handled (eg, compute budget exceeded)
+                }
+
+                index = end;
+            }
+
+            // We don't need to send anything onwards to the next stage, since it
+            // happens during the blockstore.
+            in_accum_pub_cnt += txn_count as u64;
+            in_accum_pub_sz += size as u64;
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -110,6 +110,9 @@ impl Tpu {
         tpu_enable_udp: bool,
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
+        // FIREDANCER: App name is passed down to the banking stage so it can initialize
+        // from a workspace.
+        firedancer_app_name: String,
     ) -> Self {
         let TpuSockets {
             transactions: transactions_sockets,
@@ -229,6 +232,9 @@ impl Tpu {
             connection_cache.clone(),
             bank_forks.clone(),
             prioritization_fee_cache,
+            // FIREDANCER: App name is passed down to the banking stage so it can initialize
+            // from a workspace.
+            firedancer_app_name,
         );
 
         let (entry_receiver, tpu_entry_notifier) =

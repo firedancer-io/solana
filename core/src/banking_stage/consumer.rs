@@ -524,7 +524,9 @@ impl Consumer {
         }
     }
 
-    fn execute_and_commit_transactions_locked(
+    // FIREDANCER: This function is made public because it's called directly from
+    // the firedancer banking stage.
+    pub fn execute_and_commit_transactions_locked(
         &self,
         bank: &Arc<Bank>,
         batch: &TransactionBatch,

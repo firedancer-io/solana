@@ -3036,6 +3036,9 @@ impl Node {
         bind_ip_addr: IpAddr,
         public_tpu_addr: Option<SocketAddr>,
         public_tpu_forwards_addr: Option<SocketAddr>,
+        // FIREDANCER: The desired TPU port is passed in from the config.toml file
+        // so that it can be configured.
+        firedancer_tpu_port: u16,
     ) -> Node {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
@@ -3065,7 +3068,8 @@ impl Node {
             ),
         );
 
-        let (tpu_vote_port, tpu_vote_sockets) =
+        // FIREDANCER: Correct TPU vote port is managed by Firedancer, so this is unused.
+        let (_tpu_vote_port, tpu_vote_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 1).expect("tpu_vote multi_bind");
 
         let (_, retransmit_sockets) =
@@ -3089,11 +3093,16 @@ impl Node {
         let _ = info.set_tvu((addr, tvu_port));
         let _ = info.set_tvu_forwards((addr, tvu_forwards_port));
         let _ = info.set_repair((addr, repair_port));
-        let _ = info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(addr, tpu_port)));
+        // FIREDANCER: The port we receive transactions on is determined by the Firedancer config,
+        // not whatever port Solana Labs manages to bind.
+        // let _ = info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(addr, tpu_port)));
+        let _ = info.set_tpu(public_tpu_addr.unwrap_or_else(|| SocketAddr::new(addr, firedancer_tpu_port)));
         let _ = info.set_tpu_forwards(
-            public_tpu_forwards_addr.unwrap_or_else(|| SocketAddr::new(addr, tpu_forwards_port)),
+            // public_tpu_forwards_addr.unwrap_or_else(|| SocketAddr::new(addr, tpu_port)),
+            public_tpu_forwards_addr.unwrap_or_else(|| SocketAddr::new(addr, firedancer_tpu_port)),
         );
-        let _ = info.set_tpu_vote((addr, tpu_vote_port));
+        // let _ = info.set_tpu_vote((addr, tpu_port));
+        let _ = info.set_tpu_vote((addr, firedancer_tpu_port));
         let _ = info.set_serve_repair((addr, serve_repair_port));
         trace!("new ContactInfo: {:?}", info);
 
