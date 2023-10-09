@@ -74,6 +74,9 @@ pub struct Tpu {
     tpu_entry_notifier: Option<TpuEntryNotifier>,
     staked_nodes_updater_service: StakedNodesUpdaterService,
     tracer_thread_hdl: TracerThread,
+    // FIREDANCER: Another thread which continuously listens to Firedancer
+    // shreds and inserts them into the blockstore.
+    firedancer_insert_blockstore: thread::JoinHandle<()>,
 }
 
 impl Tpu {
@@ -235,7 +238,7 @@ impl Tpu {
             prioritization_fee_cache,
             // FIREDANCER: App name is passed down to the banking stage so it can initialize
             // from a workspace.
-            firedancer_app_name,
+            firedancer_app_name.clone(),
         );
 
         let (entry_receiver, tpu_entry_notifier) =
@@ -263,6 +266,15 @@ impl Tpu {
             shred_version,
         );
 
+        // FIREDANCER: Another thread which continuously listens to Firedancer
+        // shreds and inserts them into the blockstore.
+        let blockstore = blockstore.clone();
+        let firedancer_insert_blockstore = std::thread::Builder::new()
+            .name("solBroadcastRec".to_string())
+            .spawn(move || unsafe {
+                Self::firedancer_insert_blockstore(firedancer_app_name, blockstore);
+            }).unwrap();
+
         Self {
             fetch_stage,
             sigverify_stage,
@@ -275,6 +287,137 @@ impl Tpu {
             tpu_entry_notifier,
             staked_nodes_updater_service,
             tracer_thread_hdl,
+            // FIREDANCER: Another thread which continuously listens to Firedancer
+            // shreds and inserts them into the blockstore.
+            firedancer_insert_blockstore,
+        }
+    }
+
+    unsafe fn firedancer_insert_blockstore(firedancer_app_name: String, blockstore: Arc<Blockstore>) {
+        use solana_firedancer::*;
+        use solana_ledger::shred::Shred;
+
+        #[cfg(target_arch = "x86_64")]
+        use core::arch::x86_64::_rdtsc as rdtsc;
+        #[cfg(target_arch = "x86")]
+        use core::arch::x86::_rdtsc as rdtsc;
+
+        let in_pod = Pod::join_default(format!("{}_shred_store.wksp", firedancer_app_name)).unwrap();
+        let pod = Pod::join_default(format!("{}_store.wksp", firedancer_app_name)).unwrap();
+        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache").unwrap()).unwrap();
+        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache").unwrap(), 0).unwrap(); /* MTU doesn't matter, we are only a reader */
+        let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query("fseq").unwrap()).unwrap();
+
+        in_fseq.set(FSeqDiag::PublishedCount as u64, 0);
+        in_fseq.set(FSeqDiag::PublishedSize as u64, 0);
+        in_fseq.set(FSeqDiag::FilteredCount as u64, 0);
+        in_fseq.set(FSeqDiag::FilteredSize as u64, 0);
+        in_fseq.set(FSeqDiag::OverrunPollingCount as u64, 0);
+        in_fseq.set(FSeqDiag::OverrunReadingCount as u64, 0);
+        in_fseq.set(FSeqDiag::SlowCount as u64, 0);
+        let mut in_accum_pub_cnt: u64 = 0;
+        let mut in_accum_pub_sz: u64 = 0;
+        let mut in_accum_ovrnp_cnt: u64 = 0;
+        let mut in_accum_ovrnr_cnt: u64 = 0;
+
+        let lazy: i64 = in_pod.query("lazy");
+        let lazy = if lazy <= 0 { housekeeping_default_interval_nanos(in_mcache.depth()) } else { lazy };
+        let async_min = minimum_housekeeping_tick_interval(lazy);
+
+        let cnc = Cnc::join::<GlobalAddress>(pod.try_query("cnc").unwrap()).unwrap();
+        if cnc.query() != CncSignal::Boot as u64 {
+            panic!("cnc not in boot state");
+        }
+
+        cnc.set(CncDiag::InBackpressure as u64, 0);
+        cnc.set(CncDiag::BackpressureCount as u64, 0);
+
+        let seed = pod.try_query("seed").unwrap_or(0);
+        let mut rng = Rng::new(seed, 0).unwrap();
+
+        let mut now = rdtsc();
+        let mut then = now;
+
+        cnc.signal(CncSignal::Run as u64);
+        loop {
+            if now >= then {
+                // Send flow control credits
+                in_fseq.rx_cr_return(&in_mcache);
+
+                // Send synchronization info
+                in_fseq.increment(FSeqDiag::PublishedCount as u64, in_accum_pub_cnt);
+                in_fseq.increment(FSeqDiag::PublishedSize as u64, in_accum_pub_sz);
+                in_fseq.increment(FSeqDiag::OverrunPollingCount as u64, in_accum_ovrnp_cnt);
+                in_fseq.increment(FSeqDiag::OverrunReadingCount as u64, in_accum_ovrnr_cnt);
+                in_accum_pub_cnt = 0;
+                in_accum_pub_sz = 0;
+                in_accum_ovrnp_cnt = 0;
+                in_accum_ovrnr_cnt = 0;
+
+                // Send diagnostic info
+                cnc.heartbeat(now as i64);
+
+                // Receive command-and-control signals
+                let s = cnc.query();
+                if s != CncSignal::Run as u64 {
+                    if s != CncSignal::Halt as u64 {
+                        panic!("unexpected signal");
+                    }
+                    break;
+                }
+
+                // Reload housekeeping timer
+                then = now + rng.async_reload(async_min);
+            }
+
+            match in_mcache.poll() {
+                Poll::CaughtUp => {
+                    core::hint::spin_loop();
+                    now = rdtsc();
+                    continue;
+                },
+                Poll::Overrun => {
+                    in_accum_ovrnp_cnt += 1;
+                },
+                Poll::Ready => (),
+            };
+
+            now = rdtsc();
+
+            let size = in_mcache.size();
+            let chunk = in_mcache.chunk();
+
+            let shred_cnt = u64::from_le_bytes(in_dcache.slice(chunk.into(), 0, 8).try_into().unwrap());
+            let stride = u64::from_le_bytes(in_dcache.slice(chunk.into(), 8, 8).try_into().unwrap());
+            let offset = u64::from_le_bytes(in_dcache.slice(chunk.into(), 16, 8).try_into().unwrap());
+            let shred_sz = u64::from_le_bytes(in_dcache.slice(chunk.into(), 24, 8).try_into().unwrap());
+
+            assert!(shred_sz <= stride);
+            assert!((shred_cnt==0) || (offset + stride*(shred_cnt-1) + shred_sz <= size.into()));
+
+            let shreds = (0..shred_cnt).map(|i| {
+                let shred_bytes = in_dcache.slice(chunk.into(), offset + stride*i, shred_sz);
+                Shred::new_from_serialized_shred(shred_bytes.to_vec()).unwrap() // Does .to_vec() do a copy?
+            }).collect();
+
+            // Check that we weren't overrun while processing
+            match in_mcache.advance() {
+                Advance::Overrun => {
+                    in_accum_ovrnr_cnt += 1;
+                    now = rdtsc();
+                    continue;
+                },
+                Advance::Normal => (),
+            }
+
+            blockstore
+                .insert_shreds(
+                    shreds, /*leader_schedule:*/ None, /*is_trusted:*/ true,
+                )
+                .expect("Failed to insert shreds in blockstore");
+
+            in_accum_pub_cnt += shred_cnt as u64;
+            in_accum_pub_sz += size as u64;
         }
     }
 
