@@ -22,7 +22,9 @@ solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 
 # FIREDANCER: Firedancer needs to know the current working slot of the PoH
-# service so it can pack blocks at the right place.
+# service so it can pack blocks at the right place. The PoH service also does
+# bincode serialization of the entry batches before sending the Firedancer.
+bincode = { workspace = true }
 solana-firedancer = { workspace = true }
 
 [dev-dependencies]
