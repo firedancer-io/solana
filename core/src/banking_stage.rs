@@ -421,10 +421,9 @@ impl BankingStage {
         // Keeps track of extraneous vote transactions for the vote threads
         let latest_unprocessed_votes = Arc::new(LatestUnprocessedVotes::new());
         // Many banks that process transactions in parallel.
-        // FIREDANCER: Only one bank thread is retained, for gossip, most banking will be done
-        // by Firedancer tiles.
+        // FIREDANCER: Bank threads are Firedancer tiles, no need to spawn these.
         // let bank_thread_hdls: Vec<JoinHandle<()>> = (0..num_threads)
-        let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..1)
+        let mut bank_thread_hdls: Vec<JoinHandle<()>> = (0..0)
             .map(|id| {
                 let (packet_receiver, unprocessed_transaction_storage) = match id {
                     0 => (
@@ -490,7 +489,7 @@ impl BankingStage {
             })
             .collect();
 
-        // FIREDANCER: The rest of the bank threads are Firedancer tiles
+        // FIREDANCER: Bank threads are Firedancer tiles
         let in_pod = unsafe { solana_firedancer::Pod::join_default(format!("{}_pack_bank.wksp", firedancer_app_name)).unwrap() };
         let num_threads: u32 = in_pod.try_query::<u64, &str>("cnt").unwrap() as u32;
         bank_thread_hdls.extend(

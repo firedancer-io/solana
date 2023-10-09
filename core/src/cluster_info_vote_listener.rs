@@ -244,6 +244,8 @@ impl ClusterInfoVoteListener {
         blockstore: Arc<Blockstore>,
         bank_notification_sender: Option<BankNotificationSender>,
         cluster_confirmed_slot_sender: GossipDuplicateConfirmedSlotsSender,
+        // FIREDANCER: Application name is plumbed through so we can find IPC channels
+        firedancer_app_name: String,
     ) -> Self {
         let (verified_vote_label_packets_sender, verified_vote_label_packets_receiver) =
             unbounded();
@@ -274,6 +276,8 @@ impl ClusterInfoVoteListener {
                         verified_vote_label_packets_receiver,
                         poh_recorder,
                         &verified_packets_sender,
+                        // FIREDANCER: Application name is plumbed through so we can find IPC channels
+                        firedancer_app_name,
                     );
                 })
                 .unwrap()
@@ -379,10 +383,21 @@ impl ClusterInfoVoteListener {
         verified_vote_label_packets_receiver: VerifiedLabelVotePacketsReceiver,
         poh_recorder: Arc<RwLock<PohRecorder>>,
         verified_packets_sender: &BankingPacketSender,
+        // FIREDANCER: Application name is plumbed through so we can find IPC channels
+        firedancer_app_name: String,
     ) -> Result<()> {
         let mut verified_vote_packets = VerifiedVotePackets::default();
         let mut time_since_lock = Instant::now();
         let mut bank_vote_sender_state_option: Option<BankVoteSenderState> = None;
+
+        // FIREDANCER: Join Firedancer IPC primitives to send votes across
+        use solana_firedancer::*;
+        let pack_pod = unsafe { Pod::join_default(format!("{}_dedup_pack.wksp", firedancer_app_name)).unwrap() };
+        let mut firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_gossip_pack_0").unwrap()).unwrap() };
+        let mut firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_gossip_pack_0").unwrap(), 1232).unwrap() };
+        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_gossip_pack_0_pack_0").unwrap()).unwrap() };
+        let mut firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
+        let mut firedancer_cr_avail = 0; // first loop will refresh
 
         loop {
             if exit.load(Ordering::Relaxed) {
@@ -416,6 +431,11 @@ impl ClusterInfoVoteListener {
                     poh_recorder.read().unwrap().bank(),
                     verified_packets_sender,
                     &verified_vote_packets,
+                    // FIREDANCER: IPC channel is passed to send votes to Firedancer
+                    &mut firedancer_mcache,
+                    &mut firedancer_dcache,
+                    &mut firedancer_fctl,
+                    &mut firedancer_cr_avail,
                 )?;
             }
         }
@@ -426,6 +446,10 @@ impl ClusterInfoVoteListener {
         current_working_bank: Option<Arc<Bank>>,
         verified_packets_sender: &BankingPacketSender,
         verified_vote_packets: &VerifiedVotePackets,
+        mcache: &mut solana_firedancer::MCache,
+        dcache: &mut solana_firedancer::DCache,
+        fctl: &mut solana_firedancer::FCtl,
+        cr_avail: &mut u64,
     ) -> Result<()> {
         let Some(current_working_bank) = current_working_bank else {
             // We are not the leader!
@@ -474,13 +498,49 @@ impl ClusterInfoVoteListener {
         for single_validator_votes in gossip_votes_iterator {
             bank_send_votes_stats.num_votes_sent += single_validator_votes.len();
             bank_send_votes_stats.num_batches_sent += 1;
-            verified_packets_sender
-                .send(BankingPacketBatch::new((single_validator_votes, None)))?;
+            // FIREDANCER: Don't sent gossiped votes to Solana Labs TPU, reroute
+            // them into the Firedancer pack tile instead.
+            // verified_packets_sender
+            //     .send(BankingPacketBatch::new((single_validator_votes, None)))?;
+            let _ = verified_packets_sender;
+            unsafe {
+                ClusterInfoVoteListener::firedancer_send(single_validator_votes, mcache, dcache, fctl, cr_avail);
+            }
         }
         filter_gossip_votes_timing.stop();
         bank_send_votes_stats.total_elapsed += filter_gossip_votes_timing.as_us();
 
         Ok(())
+    }
+
+    // FIREDANCER: Send gossiped votes across to the Firedancer pack tile
+    unsafe fn firedancer_send(
+        votes: Vec<packet::PacketBatch>,
+        mcache: &mut solana_firedancer::MCache,
+        dcache: &mut solana_firedancer::DCache,
+        fctl: &mut solana_firedancer::FCtl,
+        cr_avail: &mut u64
+    ) {
+        // Prevent warnings about unused BankingPacketBatch
+        let _: Option<BankingPacketBatch> = None;
+        for vote in votes {
+            while *cr_avail == 0 {
+                *cr_avail = fctl.tx_cr_update(*cr_avail, mcache);
+                std::hint::spin_loop();
+            }
+
+            assert!(vote.len() == 1);
+            let txn = &vote[0];
+            let data = txn.data(..).unwrap(); /* discard packets already dropped by now */
+
+            assert!(data.len() <= 1232);
+            let memory = dcache.write(data.len());
+            memory.copy_from_slice(data);
+
+            mcache.publish(1, dcache.chunk(), data.len().try_into().unwrap(), solana_firedancer::MCacheCtl::None, 0, 0);
+            *cr_avail -= 1;
+            dcache.compact_next(data.len().try_into().unwrap());
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
