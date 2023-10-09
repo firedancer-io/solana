@@ -310,6 +310,12 @@ pub struct PohRecorder {
     record_sender: Sender<Record>,
     leader_bank_notifier: Arc<LeaderBankNotifier>,
     pub is_exited: Arc<AtomicBool>,
+    // FIREDANCER: Firedancer needs to know the current working slot of the PoH
+    // recorder so that it can pack things for the correct block.
+    firedancer_poh_slot: solana_firedancer::ULong,
+    // FIREDANCER: Firedancer also needs to know the current reset slot of the PoH
+    // recorder to determine when we can become the leader.
+    firedancer_poh_reset_slot: solana_firedancer::ULong,
 }
 
 impl PohRecorder {
@@ -573,6 +579,16 @@ impl PohRecorder {
 
     // synchronize PoH with a bank
     pub fn reset(&mut self, reset_bank: Arc<Bank>, next_leader_slot: Option<(Slot, Slot)>) {
+        // FIREDANCER: Tell the Firedancer packing logic what the current slot is. The slot
+        // value must strictly be written before the slot we've reset the bank onto, so that
+        // we don't mistakenly see an updated reset slot while still thinking slot != 0 and
+        // that we are leader, and performing logic based on the new reset slot.
+        unsafe { std::mem::transmute::<*mut u64, &std::sync::atomic::AtomicU64>(self.firedancer_poh_slot.value) }
+            .store(0, Ordering::Relaxed);
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::Release);
+        unsafe { std::mem::transmute::<*mut u64, &std::sync::atomic::AtomicU64>(self.firedancer_poh_reset_slot.value) }
+            .store(reset_bank.slot(), std::sync::atomic::Ordering::Release);
+
         self.clear_bank();
         self.reset_poh(reset_bank, true);
 
@@ -622,6 +638,11 @@ impl PohRecorder {
             }
         }
         self.working_bank = Some(working_bank);
+
+        // FIREDANCER: Tell the Firedancer packing logic what the current slot is.
+        let slot = self.working_bank.as_ref().unwrap().bank.slot();
+        unsafe { std::mem::transmute::<*mut u64, &std::sync::atomic::AtomicU64>(self.firedancer_poh_slot.value) }
+            .store(slot, Ordering::Release); /* release ordering, working_bank ptr must be updated before pack packs */
 
         // send poh slot start timing point
         if let Some(ref sender) = self.poh_timing_point_sender {
@@ -938,7 +959,15 @@ impl PohRecorder {
         poh_config: &PohConfig,
         poh_timing_point_sender: Option<PohTimingSender>,
         is_exited: Arc<AtomicBool>,
+        // FIREDANCER: Application name is plumbed through so that we can find shared workspaces.
+        firedancer_app_name: String,
     ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
+        // FIREDANCER: Retrieve location of the shared u64 that tells pack what slot
+        // to pack, and what the reset slot is so we know when to become leader.
+        let pack_pod = unsafe { solana_firedancer::Pod::join_default(format!("{}_pack.wksp", firedancer_app_name)).unwrap() };
+        let firedancer_poh_slot = unsafe { solana_firedancer::ULong::join::<solana_firedancer::GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
+        let firedancer_poh_reset_slot = unsafe { solana_firedancer::ULong::join::<solana_firedancer::GlobalAddress>(pack_pod.try_query(format!("poh_reset_slot")).unwrap()).unwrap() };
+
         let tick_number = 0;
         let poh = Arc::new(Mutex::new(Poh::new_with_slot_info(
             last_entry_hash,
@@ -986,6 +1015,10 @@ impl PohRecorder {
                 record_sender,
                 leader_bank_notifier: Arc::default(),
                 is_exited,
+                // FIREDANCER: Pass through the shared u64 that we use to tell pack what slot it should pack.
+                // and the shared u64 that tells what the reset slot was, so we know when to become leader.
+                firedancer_poh_slot,
+                firedancer_poh_reset_slot,
             },
             receiver,
             record_receiver,
@@ -1007,6 +1040,8 @@ impl PohRecorder {
         leader_schedule_cache: &Arc<LeaderScheduleCache>,
         poh_config: &PohConfig,
         is_exited: Arc<AtomicBool>,
+        // FIREDANCER: Application name is plumbed through so that we can find shared workspaces.
+        firedancer_app_name: String,
     ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
         Self::new_with_clear_signal(
             tick_height,
@@ -1021,6 +1056,8 @@ impl PohRecorder {
             poh_config,
             None,
             is_exited,
+            // FIREDANCER: Application name is plumbed through so that we can find shared workspaces.
+            firedancer_app_name,
         )
     }
 
@@ -1079,6 +1116,8 @@ pub fn create_test_recorder(
         &leader_schedule_cache,
         &poh_config,
         exit.clone(),
+        // FIREDANCER: This test code is never called, provide dummy argument.
+        "".into(),
     );
     let ticks_per_slot = bank.ticks_per_slot();
 
