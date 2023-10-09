@@ -6237,6 +6237,7 @@ dependencies = [
  "log",
  "rand 0.8.5",
  "solana-entry",
+ "solana-firedancer",
  "solana-ledger",
  "solana-logger",
  "solana-measure",
