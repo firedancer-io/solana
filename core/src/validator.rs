@@ -1183,6 +1183,9 @@ impl Validator {
             &connection_cache,
             &prioritization_fee_cache,
             banking_tracer.clone(),
+            // FIREDANCER: App name is passed down to the replay stage so it can initialize
+            // IPC channels from a workspace.
+            firedancer_app_name.clone(),
         )?;
 
         let tpu = Tpu::new(
