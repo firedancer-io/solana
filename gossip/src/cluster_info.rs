@@ -2607,6 +2607,8 @@ impl ClusterInfo {
         thread_pool: &ThreadPool,
         last_print: &mut Instant,
         should_check_duplicate_instance: bool,
+        // FIREDANCER: Receive channel for communicated cluster contact info after CRDS updates
+        firedancer_channel: &mut Option<(Instant, solana_firedancer::MCache, solana_firedancer::DCache, solana_firedancer::FSeq, solana_firedancer::FCtl<'static, 'static>, u64)>,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_listen_loop_time);
         const RECV_TIMEOUT: Duration = Duration::from_secs(1);
@@ -2647,10 +2649,63 @@ impl ClusterInfo {
             submit_gossip_stats(&self.stats, &self.gossip, &stakes);
             *last_print = Instant::now();
         }
+        // FIREDANCER: Publish newly received gossip information to Firedancer periodically
+        if let Some((last_update, mcache, dcache, _, fctl, cr_avail)) = firedancer_channel {
+            if last_update.elapsed() > Duration::from_secs(5) {
+                unsafe { self.firedancer_send_cluster_nodes(mcache, dcache, fctl, cr_avail) };
+                *last_update = Instant::now();
+            }
+        }
         self.stats
             .gossip_listen_loop_iterations_since_last_report
             .add_relaxed(1);
         Ok(())
+    }
+
+    /// FIREDANCER: Constants for sending cluster nodes over IPC
+    const FIREDANCER_CLUSTER_NODE_CNT: u64 = 200*201;
+    const FIREDANCER_CLUSTER_NODE_SZ: u64 = 8 + Self::FIREDANCER_CLUSTER_NODE_CNT * 38;
+
+    /// FIREDANCER: Publish current gossiped cluster contact information to Firedancer
+    unsafe fn firedancer_send_cluster_nodes(
+        &self,
+        mcache: &mut solana_firedancer::MCache,
+        dcache: &mut solana_firedancer::DCache,
+        fctl: &mut solana_firedancer::FCtl,
+        cr_avail: &mut u64,
+    ) {
+        while *cr_avail == 0 {
+            *cr_avail = fctl.tx_cr_update(*cr_avail, mcache);
+            std::hint::spin_loop();
+        }
+
+        let peers = self.tvu_peers();
+        if peers.len() > Self::FIREDANCER_CLUSTER_NODE_CNT as usize {
+            warn!("cluster_nodes len {} exceeds max_elements {}", peers.len(), Self::FIREDANCER_CLUSTER_NODE_CNT);
+        }
+
+        let len = usize::min(Self::FIREDANCER_CLUSTER_NODE_CNT as usize, peers.len());
+
+        let memory = dcache.write(Self::FIREDANCER_CLUSTER_NODE_SZ as usize);
+        memory[0..8].copy_from_slice(&len.to_le_bytes());
+
+        for (i, node) in peers.iter().enumerate().take(len) {
+            let pubkey_bytes = node.pubkey().to_bytes();
+            let tvu_socket = node.tvu(solana_client::connection_cache::Protocol::UDP).unwrap();
+            let (ip, port) = match tvu_socket {
+                SocketAddr::V4(addr) => (addr.ip().octets(), addr.port()),
+                SocketAddr::V6(_) => ([0; 4], 0),
+            };
+
+            let offset = 8 + i * 38;
+            memory[offset..offset+32].copy_from_slice(&pubkey_bytes);
+            memory[offset+32..offset+36].copy_from_slice(&ip);
+            memory[offset+36..offset+38].copy_from_slice(&port.to_le_bytes());
+        }
+
+        mcache.publish(2, dcache.chunk(), 0, solana_firedancer::MCacheCtl::None, 0, 0);
+        *cr_avail -= 1;
+        dcache.compact_next(Self::FIREDANCER_CLUSTER_NODE_SZ);
     }
 
     pub(crate) fn start_socket_consume_thread(
@@ -2688,6 +2743,9 @@ impl ClusterInfo {
         response_sender: PacketBatchSender,
         should_check_duplicate_instance: bool,
         exit: Arc<AtomicBool>,
+        // FIREDANCER: Application name passed through so we communicate cluster nodes contact
+        // info updates over IPC.
+        firedancer_app_name: Option<String>,
     ) -> JoinHandle<()> {
         let mut last_print = Instant::now();
         let recycler = PacketBatchRecycler::default();
@@ -2699,6 +2757,18 @@ impl ClusterInfo {
         Builder::new()
             .name("solGossipListen".to_string())
             .spawn(move || {
+                // FIREDANCER: Find communication channel for sending cluster nodes contact info updates
+                use solana_firedancer::*;
+                let mut firedancer_channel = firedancer_app_name.map(|firedancer_app_name| {
+                    let last_update = Instant::now() - Duration::from_secs(5);
+                    let pack_pod = unsafe { Pod::join_default(format!("{}_bank_shred.wksp", firedancer_app_name)).unwrap() };
+                    let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_crds_shred_0").unwrap()).unwrap() };
+                    let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_crds_shred_0").unwrap(), Self::FIREDANCER_CLUSTER_NODE_SZ).unwrap() };
+                    let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_crds_shred_0_shred_0").unwrap()).unwrap() };
+                    let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
+                    let firedancer_cr_avail: u64 = 0; // first loop will refresh
+                    (last_update, firedancer_mcache, firedancer_dcache, firedancer_fseq, firedancer_fctl, firedancer_cr_avail)
+                });
                 while !exit.load(Ordering::Relaxed) {
                     if let Err(err) = self.run_listen(
                         &recycler,
@@ -2708,6 +2778,8 @@ impl ClusterInfo {
                         &thread_pool,
                         &mut last_print,
                         should_check_duplicate_instance,
+                        // FIREDANCER: Send the cluster contact infoover the IPC boundary to Firedancer
+                        &mut firedancer_channel,
                     ) {
                         match err {
                             GossipError::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
