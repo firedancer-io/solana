@@ -502,6 +502,9 @@ impl ReplayStage {
         dumped_slots_sender: DumpedSlotsSender,
         banking_tracer: Arc<BankingTracer>,
         popular_pruned_forks_receiver: PopularPrunedForksReceiver,
+        // FIREDANCER: App name is passed down to the replay stage so it can initialize
+        // IPC channels from a workspace.
+        firedancer_app_name: String,
     ) -> Result<Self, String> {
         let mut tower = if let Some(process_blockstore) = maybe_process_blockstore {
             let tower = process_blockstore.process_to_create_tower()?;
@@ -588,6 +591,11 @@ impl ReplayStage {
                 &poh_recorder,
                 &leader_schedule_cache,
             );
+
+            // FIREDANCER: An MVCC is used to pass cluster contact information to Firedancer.
+            use solana_firedancer::*;
+            let shred_pod = unsafe { Pod::join_default(format!("{}_shred.wksp", firedancer_app_name)).unwrap() };
+            let mut firedancer_nodes_mvcc = unsafe { Mvcc::join::<GlobalAddress>(shred_pod.try_query(format!("cluster_nodes")).unwrap()).unwrap() };
 
             loop {
                 // Stop getting entries if we get exit signal
@@ -1052,6 +1060,10 @@ impl ReplayStage {
                         &banking_tracer,
                         has_new_vote_been_rooted,
                         transaction_status_sender.is_some(),
+                        // FIREDANCER: Cluster info and an IPC MVCC structure are passed through
+                        // so we can communicate contact info an stakes to firedancer.
+                        &cluster_info,
+                        &mut firedancer_nodes_mvcc,
                     );
 
                     let poh_bank = poh_recorder.read().unwrap().bank();
@@ -1829,6 +1841,10 @@ impl ReplayStage {
         banking_tracer: &Arc<BankingTracer>,
         has_new_vote_been_rooted: bool,
         track_transaction_indexes: bool,
+        // FIREDANCER: Cluster info and an IPC MVCC structure are passed through
+        // so we can communicate contact info an stakes to firedancer.
+        cluster_info: &Arc<ClusterInfo>,
+        firedancer_nodes_mvcc: &mut solana_firedancer::Mvcc,
     ) {
         // all the individual calls to poh_recorder.read() are designed to
         // increase granularity, decrease contention
@@ -1952,6 +1968,13 @@ impl ReplayStage {
             banking_tracer.hash_event(parent.slot(), &parent.last_blockhash(), &parent.hash());
 
             let tpu_bank = bank_forks.write().unwrap().insert(tpu_bank);
+
+            // FIREDANCER: Right before we become the leader with a working bank, we want to tell
+            // Firedancer about stake and contact info of nodes in the cluster, so the shredder
+            // knows how to distribute, and where to send the data. This is not yet sufficient,
+            // as it does not keep stake up to date if we are not the leader and need to retransmit.
+            Self::firedancer_send_contact_info(cluster_info, firedancer_nodes_mvcc, poh_slot, &bank_forks.read().unwrap().root_bank(), &tpu_bank);
+
             poh_recorder
                 .write()
                 .unwrap()
@@ -1960,6 +1983,69 @@ impl ReplayStage {
             error!("{} No next leader found", my_pubkey);
         }
     }
+
+    /// FIREDANCER: Send contact info of nodes in the cluster over to Firedancer.
+    /// This is currently used for computing the Turbine tree and shred destinations.
+    fn firedancer_send_contact_info(
+        cluster_info: &Arc<ClusterInfo>,
+        firedancer_nodes_mvcc: &mut solana_firedancer::Mvcc,
+        poh_slot: u64,
+        root_bank: &Arc<Bank>,
+        tpu_bank: &Arc<Bank>) {
+    use solana_client::connection_cache::Protocol;
+    use std::net::SocketAddr;
+    use crate::cluster_nodes::{ClusterNodesCache, NodeId};
+
+    let cache = ClusterNodesCache::<()>::new(1, Duration::ZERO);
+    let cluster_nodes = cache.get(poh_slot, &*root_bank, &**tpu_bank, &*cluster_info);
+
+    let mvcc_data = firedancer_nodes_mvcc.begin_write();
+    assert!(mvcc_data.len() >= 16);
+
+    let max_elements = (mvcc_data.len() - 40) / 46;
+    if cluster_nodes.nodes.len() > max_elements {
+        warn!("cluster_nodes len {} exceeds max_elements {}", cluster_nodes.nodes.len(), max_elements);
+    }
+
+    let len = usize::min(max_elements, cluster_nodes.nodes.len());
+    let total_stake = cluster_nodes.nodes.iter().map(|node| node.stake).sum::<u64>();
+    mvcc_data[0..8].copy_from_slice(&len.to_le_bytes());
+    mvcc_data[8..16].copy_from_slice(&total_stake.to_le_bytes());
+    mvcc_data[16..24].copy_from_slice(&tpu_bank.epoch_schedule().get_first_slot_in_epoch(tpu_bank.epoch()).to_le_bytes());
+    mvcc_data[24..32].copy_from_slice(&tpu_bank.epoch_schedule().get_slots_in_epoch(tpu_bank.epoch()).to_le_bytes());
+    mvcc_data[32..40].copy_from_slice(&tpu_bank.epoch().to_le_bytes());
+
+    for (i, node) in cluster_nodes.nodes.iter().enumerate().take(max_elements) {
+        let stake = node.stake;
+        let (pubkey_bytes, tvu_udp_addr, tvu_udp_port) = match &node.node {
+            NodeId::Pubkey(pubkey) => (pubkey.to_bytes(), [0; 4], 0),
+            NodeId::ContactInfo(info) => {
+                let (ip, port): ([u8; 4], u16) = match info.tvu(Protocol::UDP) {
+                    Err(_) => ([0; 4], 0),
+                    Ok(addr) => {
+                        if cluster_info.socket_addr_space().check(&addr) {
+                            match addr {
+                                SocketAddr::V4(addr) => (addr.ip().octets(), addr.port()),
+                                SocketAddr::V6(_) => ([0; 4], 0),
+                            }
+                        } else {
+                            ([0; 4], 0)
+                        }
+                    }
+                };
+
+                (info.pubkey().to_bytes(), ip, port)
+            }
+        };
+    
+        let offset = 40 + i * 46;
+        mvcc_data[offset..offset+32].copy_from_slice(&pubkey_bytes);
+        mvcc_data[offset+32..offset+40].copy_from_slice(&stake.to_le_bytes());
+        mvcc_data[offset+40..offset+44].copy_from_slice(&tvu_udp_addr);
+        mvcc_data[offset+44..offset+46].copy_from_slice(&tvu_udp_port.to_le_bytes());
+    }
+    firedancer_nodes_mvcc.end_write();
+}
 
     #[allow(clippy::too_many_arguments)]
     fn replay_blockstore_into_bank(
