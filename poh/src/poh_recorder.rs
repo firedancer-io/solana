@@ -304,8 +304,14 @@ pub struct PohRecorder {
     leader_bank_notifier: Arc<LeaderBankNotifier>,
     pub is_exited: Arc<AtomicBool>,
     // FIREDANCER: Firedancer needs to know the current working slot of the PoH
-    // recorder so that it can pack things for the correct block.
+    // recorder so that it can pack things for the correct block. It also needs
+    // an mcache and dcache for the shredder to send PoH recorded microblocks
+    // to.
     firedancer_poh_slot: solana_firedancer::ULong,
+    firedancer_mcache: solana_firedancer::MCache,
+    firedancer_dcache: solana_firedancer::DCache,
+    firedancer_fctl: solana_firedancer::FCtl<'static, 'static>,
+    firedancer_cr_avail: u64,
 }
 
 impl PohRecorder {
@@ -670,10 +676,23 @@ impl PohRecorder {
 
             for tick in &self.tick_cache[..entry_count] {
                 working_bank.bank.register_tick(&tick.0.hash);
-                send_result = self.sender.send((working_bank.bank.clone(), tick.clone()));
+                // FIREDANCER: Don't send entry batches to the Solana broadcast stage,
+                // but reroute them into the Firedancer shred tile.
+                // send_result = self.sender.send((working_bank.bank.clone(), tick.clone()));
                 if send_result.is_err() {
                     break;
                 }
+                unsafe {
+                    /* blocks if backpressured */
+                   Self::firedancer_send(
+                       &working_bank.bank,
+                       &mut self.firedancer_mcache,
+                       &mut self.firedancer_dcache,
+                       &mut self.firedancer_fctl,
+                       &mut self.firedancer_cr_avail,
+                       &tick.0,
+                       tick.1);
+               }
             }
         }
         if self.tick_height >= working_bank.max_tick_height {
@@ -698,6 +717,39 @@ impl PohRecorder {
 
         Ok(())
     }
+
+    /// FIREDANCER: Send an entry batch to the Firedancer shredder for fast
+    /// broadcasting.
+    unsafe fn firedancer_send(
+        bank: &Arc<Bank>,
+        mcache: &mut solana_firedancer::MCache,
+        dcache: &mut solana_firedancer::DCache,
+        fctl: &mut solana_firedancer::FCtl,
+        cr_avail: &mut u64,
+        entry: &Entry,
+        tick: u64) {
+    while *cr_avail == 0 {
+        *cr_avail = fctl.tx_cr_update(*cr_avail, mcache);
+        std::hint::spin_loop();
+    };
+
+    let memory = dcache.write(u16::MAX.into());
+    memory[0..8].copy_from_slice(&bank.slot().to_le_bytes());
+    memory[8..16].copy_from_slice(&(bank.slot() - bank.parent_slot()).to_le_bytes());
+    memory[16..24].copy_from_slice(&bank.max_tick_height().to_le_bytes());
+    memory[24..32].copy_from_slice(&(bank.tick_height() % bank.ticks_per_slot()).to_le_bytes());
+    memory[32..40].copy_from_slice(&tick.to_le_bytes());
+    memory[40..48].copy_from_slice(&(1u64).to_le_bytes());
+
+    // serializing guaranteed to succeed, since pack will not create an entry that would not fit
+    // in USHORT_MAX, otherwise panic.
+    let mut writer = std::io::Cursor::new(&mut memory[48..]);
+    bincode::serialize_into(&mut writer, entry).unwrap();
+    let size: u64 = 48 + writer.position();
+    mcache.publish(0, dcache.chunk(), size, solana_firedancer::MCacheCtl::None, 0, 0);
+    *cr_avail -= 1;
+    dcache.compact_next(size);
+}
 
     fn report_poh_timing_point_by_tick(&self) {
         match self.tick_height % self.ticks_per_slot {
@@ -893,7 +945,21 @@ impl PohRecorder {
                             transactions,
                         };
                         let bank_clone = working_bank.bank.clone();
-                        self.sender.send((bank_clone, (entry, self.tick_height)))
+                        // FIREDANCER: Don't send entry batches to the Solana broadcast stage,
+                        // but reroute them into the Firedancer shred tile.
+                        // self.sender.send((bank_clone, (entry, self.tick_height)))
+                        unsafe {
+                            /* blocks if backpressured */
+                            Self::firedancer_send(
+                                &working_bank.bank,
+                                &mut self.firedancer_mcache,
+                                &mut self.firedancer_dcache,
+                                &mut self.firedancer_fctl,
+                                &mut self.firedancer_cr_avail,
+                                &entry,
+                                self.tick_height);
+                        };
+                        Ok::<(), PohRecorderError>(())
                     },
                     "send_poh_entry",
                 );
@@ -934,8 +1000,15 @@ impl PohRecorder {
         firedancer_app_name: String,
     ) -> (Self, Receiver<WorkingBankEntry>, Receiver<Record>) {
         // FIREDANCER: Retrieve location of the shared u64 that tells pack what slot to pack.
-        let pack_pod = unsafe { solana_firedancer::Pod::join_default(format!("{}_pack.wksp", firedancer_app_name)).unwrap() };
-        let firedancer_poh_slot = unsafe { solana_firedancer::ULong::join::<solana_firedancer::GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
+        use solana_firedancer::*;
+        let pack_pod = unsafe { Pod::join_default(format!("{}_pack.wksp", firedancer_app_name)).unwrap() };
+        let shred_pod = unsafe { Pod::join_default(format!("{}_bank_shred.wksp", firedancer_app_name)).unwrap() };
+
+        let firedancer_poh_slot = unsafe { ULong::join::<GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
+        let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(shred_pod.try_query("mcache0").unwrap()).unwrap() };
+        let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(shred_pod.try_query("dcache0").unwrap(), u16::MAX.into()).unwrap() };
+        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(shred_pod.try_query("fseq0").unwrap()).unwrap() };
+        let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
 
         let tick_number = 0;
         let poh = Arc::new(Mutex::new(Poh::new_with_slot_info(
@@ -986,6 +1059,11 @@ impl PohRecorder {
                 is_exited,
                 // FIREDANCER: Pass through the shared u64 that we use to tell pack what slot it should pack.
                 firedancer_poh_slot,
+                // FIREDANCER: Communication channel to send stake weights and node contact info
+                firedancer_mcache,
+                firedancer_dcache,
+                firedancer_fctl,
+                firedancer_cr_avail: 0, /* first loop will refresh */
             },
             receiver,
             record_receiver,
