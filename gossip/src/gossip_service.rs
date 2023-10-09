@@ -40,6 +40,8 @@ impl GossipService {
         should_check_duplicate_instance: bool,
         stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
         exit: Arc<AtomicBool>,
+        // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer cluster nodes updates
+        firedancer_app_name: Option<String>,
     ) -> Self {
         let (request_sender, request_receiver) = unbounded();
         let gossip_socket = Arc::new(gossip_socket);
@@ -72,6 +74,9 @@ impl GossipService {
             response_sender.clone(),
             should_check_duplicate_instance,
             exit.clone(),
+            // FIREDANCER: Application name passed through so we communicate cluster nodes contact
+            // info updates over IPC.
+            firedancer_app_name.clone(),
         );
         let t_gossip =
             cluster_info
@@ -324,6 +329,8 @@ pub fn make_gossip_node(
         should_check_duplicate_instance,
         None,
         exit,
+        // FIREDANCER: No need to pass an app name here, there is no Firedancer running
+        None,
     );
     (gossip_service, ip_echo, cluster_info)
 }
