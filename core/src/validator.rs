@@ -1264,6 +1264,9 @@ impl Validator {
             turbine_quic_endpoint_sender.clone(),
             turbine_quic_endpoint_receiver,
             repair_quic_endpoint_sender,
+            // FIREDANCER: App name is passed down to the replay stage so it can initialize
+            // IPC channels from a workspace.
+            firedancer_app_name.clone(),
         )?;
 
         let tpu = Tpu::new(

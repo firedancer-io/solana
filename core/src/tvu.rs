@@ -139,6 +139,9 @@ impl Tvu {
         turbine_quic_endpoint_sender: AsyncSender<(SocketAddr, Bytes)>,
         turbine_quic_endpoint_receiver: Receiver<(Pubkey, SocketAddr, Bytes)>,
         repair_quic_endpoint_sender: AsyncSender<LocalRequest>,
+        // FIREDANCER: App name is passed down to the replay stage so it can initialize
+        // IPC channels from a workspace.
+        firedancer_app_name: String,
     ) -> Result<Self, String> {
         let TvuSockets {
             repair: repair_socket,
@@ -310,6 +313,9 @@ impl Tvu {
             dumped_slots_sender,
             banking_tracer,
             popular_pruned_forks_receiver,
+            // FIREDANCER: App name is passed down to the replay stage so it can initialize
+            // IPC channels from a workspace.
+            firedancer_app_name,
         )?;
 
         let ledger_cleanup_service = tvu_config.max_ledger_shreds.map(|max_ledger_shreds| {
