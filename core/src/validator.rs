@@ -893,6 +893,8 @@ impl Validator {
                 &genesis_config.poh_config,
                 Some(poh_timing_point_sender),
                 exit.clone(),
+                // FIREDANCER: Pass application name through so POH can find the shared workspaces.
+                firedancer_app_name.clone(),
             )
         };
         let poh_recorder = Arc::new(RwLock::new(poh_recorder));
