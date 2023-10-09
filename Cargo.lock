@@ -5841,6 +5841,7 @@ dependencies = [
  "solana-clap-utils",
  "solana-client",
  "solana-entry",
+ "solana-firedancer",
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-ledger",
