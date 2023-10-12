@@ -1,7 +1,7 @@
 FROM docker.io/redhat/ubi8
 
 RUN dnf update -y
-RUN dnf install -y gcc git clang python3 make curl libudev-devel cmake clang openssl-devel systemd-devel pkg-config zlib-devel llvm  perl-core
+RUN dnf install -y gcc git clang python3 make curl libudev-devel cmake clang openssl-devel systemd-devel pkg-config zlib-devel llvm  perl-core protobuf-compiler
 
 COPY cert.pem* /certs/
 RUN if [ -e /certs/cert.pem ]; then cp /certs/cert.pem /etc/ssl/cert.pem; fi
