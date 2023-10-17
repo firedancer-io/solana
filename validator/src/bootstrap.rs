@@ -152,6 +152,8 @@ fn start_gossip_node(
     gossip_validators: Option<HashSet<Pubkey>>,
     should_check_duplicate_instance: bool,
     socket_addr_space: SocketAddrSpace,
+    // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
+    firedancer_app_name: String,
 ) -> (Arc<ClusterInfo>, Arc<AtomicBool>, GossipService) {
     let contact_info = ClusterInfo::gossip_contact_info(
         identity_keypair.pubkey(),
@@ -172,6 +174,8 @@ fn start_gossip_node(
         should_check_duplicate_instance,
         None,
         &gossip_exit_flag,
+        // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
+        Some(firedancer_app_name),
     );
     (cluster_info, gossip_exit_flag, gossip_service)
 }
@@ -592,6 +596,8 @@ pub fn rpc_bootstrap(
     minimal_snapshot_download_speed: f32,
     maximum_snapshot_download_abort: u64,
     socket_addr_space: SocketAddrSpace,
+    // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
+    firedancer_app_name: String,
 ) {
     if do_port_check {
         let mut order: Vec<_> = (0..cluster_entrypoints.len()).collect();
@@ -636,6 +642,8 @@ pub fn rpc_bootstrap(
                 validator_config.gossip_validators.clone(),
                 should_check_duplicate_instance,
                 socket_addr_space,
+                // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
+                firedancer_app_name.clone(),
             ));
         }
 
