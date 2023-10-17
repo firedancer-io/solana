@@ -3039,14 +3039,19 @@ impl Node {
         // FIREDANCER: The desired TPU port is passed in from the config.toml file
         // so that it can be configured.
         firedancer_tpu_port: u16,
+        // FIREDANCER: The desired TVU port is passed in from the config.toml file
+        // so that it can be configured.
+        firedancer_tvu_port: u16,
     ) -> Node {
         let (gossip_port, (gossip, ip_echo)) =
             Self::get_gossip_port(gossip_addr, port_range, bind_ip_addr);
 
-        let (tvu_port, tvu_sockets) =
+        // FIREDANCER: Correct TVU port is managed by Firedancer, so this is unused.
+        let (_tvu_port, tvu_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu multi_bind");
 
-        let (tvu_forwards_port, tvu_forwards_sockets) =
+        // FIREDANCER: Correct TVU port is managed by Firedancer, so this is unused.
+        let (_tvu_forwards_port, tvu_forwards_sockets) =
             multi_bind_in_range(bind_ip_addr, port_range, 8).expect("tvu_forwards multi_bind");
 
         let (tpu_port, tpu_sockets) =
@@ -3090,8 +3095,12 @@ impl Node {
         );
         let addr = gossip_addr.ip();
         let _ = info.set_gossip((addr, gossip_port));
-        let _ = info.set_tvu((addr, tvu_port));
-        let _ = info.set_tvu_forwards((addr, tvu_forwards_port));
+        // FIREDANCER: The port we receive shreds on is determined by the Firedancer config,
+        // not whatever port Solana Labs manages to bind.
+        // let _ = info.set_tvu((addr, tvu_port));
+        // let _ = info.set_tvu_forwards((addr, tvu_forwards_port));
+        let _ = info.set_tvu((addr, firedancer_tvu_port));
+        let _ = info.set_tvu_forwards((addr, firedancer_tvu_port));
         let _ = info.set_repair((addr, repair_port));
         // FIREDANCER: The port we receive transactions on is determined by the Firedancer config,
         // not whatever port Solana Labs manages to bind.
