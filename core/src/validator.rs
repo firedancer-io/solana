@@ -1049,6 +1049,9 @@ impl Validator {
             should_check_duplicate_instance,
             Some(stats_reporter_sender.clone()),
             &exit,
+            // FIREDANCER: Don't pass app name here, we don't need to set shred version because this
+            // is done by the bootstrap gossip service, not the main validator one.
+            None,
         );
         let serve_repair = ServeRepair::new(
             cluster_info.clone(),
