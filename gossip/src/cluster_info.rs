@@ -1664,7 +1664,9 @@ impl ClusterInfo {
         Ok(())
     }
 
-    fn process_entrypoints(&self) -> bool {
+    // FIREDANCER: Receive a u16 where we can tell Firedancer what the shred version we received
+    // over gossip is.
+    fn process_entrypoints(&self, firedancer_shred_version: &mut Option<solana_firedancer::ULong>) -> bool {
         let mut entrypoints = self.entrypoints.write().unwrap();
         if entrypoints.is_empty() {
             // No entrypoint specified.  Nothing more to process
@@ -1698,6 +1700,11 @@ impl ClusterInfo {
                     .write()
                     .unwrap()
                     .set_shred_version(entrypoint.shred_version());
+                // FIREDANCER: Tell Firedancer what shred version to use, that we received
+                // from an entrypoint peer.
+                if let Some(firedancer_shred_version) = firedancer_shred_version.as_ref() {
+                    unsafe { *firedancer_shred_version.value = entrypoint.shred_version() as u64; }
+                }
             }
         }
         self.my_shred_version() != 0
@@ -1764,6 +1771,8 @@ impl ClusterInfo {
         sender: PacketBatchSender,
         gossip_validators: Option<HashSet<Pubkey>>,
         exit: Arc<AtomicBool>,
+        // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
+        firedancer_app_name: Option<String>,
     ) -> JoinHandle<()> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(std::cmp::min(get_thread_count(), 8))
@@ -1773,6 +1782,15 @@ impl ClusterInfo {
         Builder::new()
             .name("solGossip".to_string())
             .spawn(move || {
+                // FIREDANCER: Find the location of the u16 we need to update to tell
+                // Firedancer what the shred version we received over gossip was.
+                use solana_firedancer::*;
+                let mut firedancer_shred_version = firedancer_app_name.map(|firedancer_app_name| {
+                    let shred_pod = unsafe { Pod::join_default(format!("{}_shred.wksp", firedancer_app_name)).unwrap() };
+                    unsafe { ULong::join::<GlobalAddress>(shred_pod.try_query("shred_version").unwrap()).unwrap() }
+                });
+
+
                 let mut last_push = 0;
                 let mut last_contact_info_trace = timestamp();
                 let mut last_contact_info_save = timestamp();
@@ -1832,7 +1850,8 @@ impl ClusterInfo {
                         return;
                     }
                     self.handle_purge(&thread_pool, bank_forks.as_deref(), &stakes);
-                    entrypoints_processed = entrypoints_processed || self.process_entrypoints();
+                    // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
+                    entrypoints_processed = entrypoints_processed || self.process_entrypoints(&mut firedancer_shred_version);
                     //TODO: possibly tune this parameter
                     //we saw a deadlock passing an self.read().unwrap().timeout into sleep
                     if start - last_push > CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS / 2 {

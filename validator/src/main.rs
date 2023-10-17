@@ -1881,6 +1881,8 @@ where
             minimal_snapshot_download_speed,
             maximum_snapshot_download_abort,
             socket_addr_space,
+            // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
+            firedancer_app_name.clone(),
         );
         *start_progress.write().unwrap() = ValidatorStartProgress::Initializing;
     }
