@@ -685,6 +685,8 @@ impl Validator {
             transaction_notifier,
             entry_notifier,
             Some(poh_timing_point_sender.clone()),
+            // FIREDANCER: Pass application name through so leader schedule cache can find the shared workspaces.
+            firedancer_app_name.clone(),
         )?;
 
         node.info.set_wallclock(timestamp());
@@ -1566,6 +1568,8 @@ fn load_blockstore(
     transaction_notifier: Option<TransactionNotifierLock>,
     entry_notifier: Option<EntryNotifierLock>,
     poh_timing_point_sender: Option<PohTimingSender>,
+    // FIREDANCER: Pass application name through so leader schedule cache can find the shared workspaces.
+    firedancer_app_name: String,
 ) -> Result<
     (
         GenesisConfig,
@@ -1678,6 +1682,8 @@ fn load_blockstore(
                 .map(|service| service.sender()),
             accounts_update_notifier,
             exit,
+            // FIREDANCER: Pass application name through so leader schedule cache can find the shared workspaces.
+            Some(firedancer_app_name),
         );
 
     // Before replay starts, set the callbacks in each of the banks in BankForks so that
