@@ -1784,6 +1784,7 @@ where
     // FIREDANCER: Get application name and port from the CLI.
     let firedancer_app_name = value_t_or_exit!(matches, "firedancer_app_name", String);
     let firedancer_tpu_port = value_t_or_exit!(matches, "firedancer_tpu_port", u16);
+    let firedancer_tvu_port = value_t_or_exit!(matches, "firedancer_tvu_port", u16);
 
     let mut node = Node::new_with_external_ip(
         &identity_keypair.pubkey(),
@@ -1795,6 +1796,9 @@ where
         // FIREDANCER: Desired port for the TPU is passed in from the config file, so it
         // can be broadcast correctly via. gossip.
         firedancer_tpu_port,
+        // FIREDANCER: Desired port for the TVU is passed in from the config file, so it
+        // can be broadcast correctly via. gossip.
+        firedancer_tvu_port,
     );
 
     if restricted_repair_only_mode {
