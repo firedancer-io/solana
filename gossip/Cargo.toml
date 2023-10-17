@@ -50,6 +50,9 @@ solana-vote-program = { workspace = true }
 static_assertions = { workspace = true }
 thiserror = { workspace = true }
 
+# FIREDANCER: Add required Firedancer dependencies.
+solana-firedancer = { workspace = true }
+
 [dev-dependencies]
 num_cpus = { workspace = true }
 regex = { workspace = true }
