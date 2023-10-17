@@ -19,6 +19,12 @@
 )]
 #[allow(deprecated)]
 pub use solana_net_utils::{MINIMUM_VALIDATOR_PORT_RANGE_WIDTH, VALIDATOR_PORT_RANGE};
+use firedancer_sys::*;
+use std::ffi::{
+    c_char,
+    CStr,
+    CString, c_void,
+};
 use {
     crate::{
         cluster_info_metrics::{
@@ -49,6 +55,7 @@ use {
     rand::{seq::SliceRandom, thread_rng, CryptoRng, Rng},
     rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
     serde::ser::Serialize,
+    solana_firedancer::*,
     solana_ledger::shred::Shred,
     solana_measure::measure::Measure,
     solana_net_utils::{
@@ -179,6 +186,7 @@ pub struct ClusterInfo {
     instance: RwLock<NodeInstance>,
     contact_info_path: PathBuf,
     socket_addr_space: SocketAddrSpace,
+    firedancer_app_name: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, AbiExample)]
@@ -434,6 +442,7 @@ impl ClusterInfo {
             contact_info_path: PathBuf::default(),
             contact_save_interval: 0, // disabled
             socket_addr_space,
+            firedancer_app_name: "".to_string(),
         };
         me.insert_self();
         me.push_self();
@@ -442,6 +451,10 @@ impl ClusterInfo {
 
     pub fn set_contact_debug_interval(&mut self, new: u64) {
         self.contact_debug_interval = new;
+    }
+
+    pub fn set_firedancer_app_name(&mut self, firedancer_app_name: String) {
+        self.firedancer_app_name = firedancer_app_name;
     }
 
     pub fn socket_addr_space(&self) -> &SocketAddrSpace {
@@ -1669,6 +1682,33 @@ impl ClusterInfo {
         Ok(())
     }
 
+    fn insert_shred_version(&self, shred_version: u16) {
+        if self.firedancer_app_name.is_empty() {
+            error!("insert_shred_version firedancer_app_name is empty");
+            return;
+        }
+
+        let wksp_str: CString = CString::new(format!("{}_shred.wksp", self.firedancer_app_name)).unwrap();
+        let wksp = unsafe { util::fd_wksp_attach(wksp_str.as_ptr()) };
+        if wksp.is_null() {
+            error!("insert_shred_version wksp is null");
+            return;
+        }
+
+        let pod = unsafe { util::fd_wksp_laddr( wksp, (*wksp).gaddr_lo ) };
+        if pod.is_null() {
+            error!("insert_shred_version pod is null");
+            return;
+        }
+
+        let laddr = unsafe { util::fd_pod_join(pod) };
+        let s: CString = CString::new("shred_version_entrypoint").unwrap();
+        let value = unsafe { util::fd_pod_insert_ushort(laddr, s.as_ptr(), shred_version) };
+        if value==0 {
+            error!("insert_shred_version failed");
+        }
+    }
+
     fn process_entrypoints(&self) -> bool {
         let mut entrypoints = self.entrypoints.write().unwrap();
         if entrypoints.is_empty() {
@@ -1699,6 +1739,7 @@ impl ClusterInfo {
                     entrypoint.shred_version(),
                     entrypoint.pubkey()
                 );
+                self.insert_shred_version(entrypoint.shred_version());
                 self.my_contact_info
                     .write()
                     .unwrap()

@@ -714,6 +714,7 @@ impl Validator {
             identity_keypair.clone(),
             socket_addr_space,
         );
+        cluster_info.set_firedancer_app_name(firedancer_app_name.clone());
         cluster_info.set_contact_debug_interval(config.contact_debug_interval);
         cluster_info.set_entrypoints(cluster_entrypoints);
         cluster_info.restore_contact_info(ledger_path, config.contact_save_interval);

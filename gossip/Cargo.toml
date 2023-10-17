@@ -31,6 +31,8 @@ solana-bloom = { workspace = true }
 solana-clap-utils = { workspace = true }
 solana-client = { workspace = true }
 solana-entry = { workspace = true }
+solana-firedancer = { workspace = true }
+firedancer-sys = { workspace = true }
 solana-frozen-abi = { workspace = true }
 solana-frozen-abi-macro = { workspace = true }
 solana-ledger = { workspace = true }
