@@ -62,6 +62,9 @@ tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true }
 trees = { workspace = true }
 
+# FIREDANCER: Add required Firedancer dependencies.
+solana-firedancer = { workspace = true }
+
 [dependencies.rocksdb]
 # Avoid the vendored bzip2 within rocksdb-sys that can cause linker conflicts
 # when also using the bzip2 crate
