@@ -3768,6 +3768,9 @@ impl Bank {
             self.freeze_started.store(true, Relaxed);
             *hash = self.hash_internal_state();
             self.rc.accounts.accounts_db.mark_slot_frozen(self.slot());
+
+            drop(hash);
+            let _ = bank_hash_details::write_bank_hash_details_file(&self);
         }
     }
 
