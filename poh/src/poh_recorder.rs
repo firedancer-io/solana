@@ -1016,9 +1016,9 @@ impl PohRecorder {
 
         let firedancer_poh_slot = unsafe { ULong::join::<GlobalAddress>(pack_pod.try_query(format!("poh_slot")).unwrap()).unwrap() };
         let firedancer_poh_parent_slot = unsafe { ULong::join::<GlobalAddress>(pack_pod.try_query(format!("poh_parent_slot")).unwrap()).unwrap() };
-        let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(shred_pod.try_query("mcache0").unwrap()).unwrap() };
-        let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(shred_pod.try_query("dcache0").unwrap(), u16::MAX.into()).unwrap() };
-        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(shred_pod.try_query("fseq0").unwrap()).unwrap() };
+        let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(shred_pod.try_query("mcache_poh_shred_0").unwrap()).unwrap() };
+        let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(shred_pod.try_query("dcache_poh_shred_0").unwrap(), u16::MAX.into()).unwrap() };
+        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(shred_pod.try_query("fseq_poh_shred_0_shred_0").unwrap()).unwrap() };
         let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
 
         let tick_number = 0;

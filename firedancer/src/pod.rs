@@ -48,7 +48,13 @@ impl Pod {
           return Err(());
       }
 
-      let pod = util::fd_wksp_laddr( wksp, (*wksp).gaddr_lo );
+      let gaddr_lo = (*wksp).gaddr_lo;
+      let gaddr_lo = if gaddr_lo % 4096 != 0 {
+        gaddr_lo + 4096 - (gaddr_lo % 4096)
+      } else {
+        gaddr_lo
+      };
+      let pod = util::fd_wksp_laddr( wksp, gaddr_lo );
       if pod.is_null() {
           return Err(());
       }

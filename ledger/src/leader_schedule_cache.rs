@@ -58,9 +58,9 @@ impl LeaderScheduleCache {
         use solana_firedancer::*;
         let firedancer_channel = firedancer_app_name.map(|firedancer_app_name| {
             let pack_pod = unsafe { Pod::join_default(format!("{}_dedup_pack.wksp", firedancer_app_name)).unwrap() };
-            let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("lsched-mcache").unwrap()).unwrap() };
-            let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("lsched-dcache").unwrap(), FIREDANCER_PACKET_SZ).unwrap() };
-            let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("lsched-fseq").unwrap()).unwrap() };
+            let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_lsched_pack_0").unwrap()).unwrap() };
+            let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_lsched_pack_0").unwrap(), FIREDANCER_PACKET_SZ).unwrap() };
+            let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_lsched_pack_0_pack_0").unwrap()).unwrap() };
             let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
             let firedancer_cr_avail: u64 = 0; // first loop will refresh
             RwLock::new((firedancer_mcache, firedancer_dcache, firedancer_fseq, firedancer_fctl, firedancer_cr_avail))
@@ -303,7 +303,7 @@ impl LeaderScheduleCache {
             memory[offset..offset+32].copy_from_slice(&pubkey.to_bytes());
         }
 
-        mcache.publish(2, dcache.chunk(), 0, solana_firedancer::MCacheCtl::None, 0, 0);
+        // mcache.publish(2, dcache.chunk(), 0, solana_firedancer::MCacheCtl::None, 0, 0);
         *cr_avail -= 1;
         dcache.compact_next(FIREDANCER_PACKET_SZ);
     }

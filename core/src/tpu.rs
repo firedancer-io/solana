@@ -304,9 +304,9 @@ impl Tpu {
 
         let in_pod = Pod::join_default(format!("{}_shred_store.wksp", firedancer_app_name)).unwrap();
         let pod = Pod::join_default(format!("{}_store.wksp", firedancer_app_name)).unwrap();
-        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache").unwrap()).unwrap();
-        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache").unwrap(), 0).unwrap(); /* MTU doesn't matter, we are only a reader */
-        let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query("fseq").unwrap()).unwrap();
+        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache_shred_store_0").unwrap()).unwrap();
+        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache_shred_store_0").unwrap(), 0).unwrap(); /* MTU doesn't matter, we are only a reader */
+        let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query("fseq_shred_store_0_store_0").unwrap()).unwrap();
 
         in_fseq.set(FSeqDiag::PublishedCount as u64, 0);
         in_fseq.set(FSeqDiag::PublishedSize as u64, 0);
@@ -324,7 +324,7 @@ impl Tpu {
         let lazy = if lazy <= 0 { housekeeping_default_interval_nanos(in_mcache.depth()) } else { lazy };
         let async_min = minimum_housekeeping_tick_interval(lazy);
 
-        let cnc = Cnc::join::<GlobalAddress>(pod.try_query("cnc").unwrap()).unwrap();
+        let cnc = Cnc::join::<GlobalAddress>(pod.try_query("cnc_0").unwrap()).unwrap();
         if cnc.query() != CncSignal::Boot as u64 {
             panic!("cnc not in boot state");
         }

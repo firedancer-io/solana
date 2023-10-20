@@ -394,9 +394,9 @@ impl ClusterInfoVoteListener {
         // FIREDANCER: Join Firedancer IPC primitives to send votes across
         use solana_firedancer::*;
         let pack_pod = unsafe { Pod::join_default(format!("{}_dedup_pack.wksp", firedancer_app_name)).unwrap() };
-        let mut firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("gossip-mcache").unwrap()).unwrap() };
-        let mut firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("gossip-dcache").unwrap(), 1232).unwrap() };
-        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("gossip-fseq").unwrap()).unwrap() };
+        let mut firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_gossip_pack_0").unwrap()).unwrap() };
+        let mut firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_gossip_pack_0").unwrap(), 1232).unwrap() };
+        let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_gossip_pack_0_pack_0").unwrap()).unwrap() };
         let mut firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
         let mut firedancer_cr_avail = 0; // first loop will refresh
 

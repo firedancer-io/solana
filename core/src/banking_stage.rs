@@ -515,10 +515,10 @@ impl BankingStage {
         #[cfg(target_arch = "x86")]
         use core::arch::x86::_rdtsc as rdtsc;
 
-        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache").unwrap()).unwrap();
-        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache").unwrap(), 0).unwrap(); /* mtu of 0 is ok, it's read only */
-        let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("fseq{}", id)).unwrap()).unwrap();
-        let in_busy = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("busy{}", id)).unwrap()).unwrap();
+        let mut in_mcache = MCache::join::<GlobalAddress>(in_pod.try_query("mcache_pack_bank_0").unwrap()).unwrap();
+        let in_dcache = DCache::join::<GlobalAddress>(in_pod.try_query("dcache_pack_bank_0").unwrap(), 0).unwrap(); /* mtu of 0 is ok, it's read only */
+        let in_fseq = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("fseq_pack_bank_0_bank_{}", id)).unwrap()).unwrap();
+        let in_busy = FSeq::join::<GlobalAddress>(in_pod.try_query(format!("busy_{}", id)).unwrap()).unwrap();
 
         in_fseq.set(FSeqDiag::PublishedCount as u64, 0);
         in_fseq.set(FSeqDiag::PublishedSize as u64, 0);
@@ -535,7 +535,7 @@ impl BankingStage {
         let lazy = housekeeping_default_interval_nanos(in_mcache.depth());
         let async_min = minimum_housekeeping_tick_interval(lazy);
 
-        let cnc = Cnc::join::<GlobalAddress>(pod.try_query(format!("cnc{}", id)).unwrap()).unwrap();
+        let cnc = Cnc::join::<GlobalAddress>(pod.try_query(format!("cnc_{}", id)).unwrap()).unwrap();
         if cnc.query() != CncSignal::Boot as u64 {
             panic!("cnc not in boot state");
         }
