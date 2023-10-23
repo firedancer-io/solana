@@ -74,6 +74,9 @@ impl GossipService {
             response_sender.clone(),
             should_check_duplicate_instance,
             exit.clone(),
+            // FIREDANCER: Application name passed through so we communicate cluster nodes contact
+            // info updates over IPC.
+            firedancer_app_name.clone(),
         );
         let t_gossip =
             cluster_info
