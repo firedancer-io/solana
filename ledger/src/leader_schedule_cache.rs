@@ -23,8 +23,8 @@ const MAX_SCHEDULES: usize = 10;
 
 // FIREDANCER: Some constants for the number and size of the leader
 // schedules we send across the IPC boundary.
-const FIREDANCER_LEADER_CNT: u64 = 432_000;
-const FIREDANCER_PACKET_SZ: u64 = 24 + FIREDANCER_LEADER_CNT * 32;
+const FIREDANCER_STAKE_WEIGHT_CNT: u64 = 40_200;
+const FIREDANCER_PACKET_SZ: u64 = 32 + FIREDANCER_STAKE_WEIGHT_CNT * 40;
 
 struct CacheCapacity(usize);
 impl Default for CacheCapacity {
@@ -56,16 +56,16 @@ impl LeaderScheduleCache {
     pub fn new(epoch_schedule: EpochSchedule, root_bank: &Bank, firedancer_app_name: Option<String>) -> Self {
         // FIREDANCER: Find communication channel for sending leader schedule updates
         use solana_firedancer::*;
-        let firedancer_channel = firedancer_app_name.map(|firedancer_app_name| {
-            let pack_pod = unsafe { Pod::join_default(format!("{}_dedup_pack.wksp", firedancer_app_name)).unwrap() };
-            let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_lsched_pack_0").unwrap()).unwrap() };
-            let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_lsched_pack_0").unwrap(), FIREDANCER_PACKET_SZ).unwrap() };
-            let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_lsched_pack_0_pack_0").unwrap()).unwrap() };
+        let mut firedancer_channel = firedancer_app_name.map(|firedancer_app_name| {
+            let pack_pod = unsafe { Pod::join_default(format!("{}_stakes_fd.wksp", firedancer_app_name)).unwrap() };
+            let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_stakes_fd_0").unwrap()).unwrap() };
+            let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_stakes_fd_0").unwrap(), FIREDANCER_PACKET_SZ).unwrap() };
+            let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_stakes_fd_0_pack_0").unwrap()).unwrap() };
             let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
             let firedancer_cr_avail: u64 = 0; // first loop will refresh
             RwLock::new((firedancer_mcache, firedancer_dcache, firedancer_fseq, firedancer_fctl, firedancer_cr_avail))
         });
-        let cache = Self {
+        let mut cache = Self {
             cached_schedules: RwLock::new((HashMap::new(), VecDeque::new())),
             epoch_schedule,
             max_epoch: RwLock::new(0),
@@ -84,6 +84,9 @@ impl LeaderScheduleCache {
             let first_slot_in_epoch = epoch_schedule.get_first_slot_in_epoch(epoch);
             cache.slot_leader_at(first_slot_in_epoch, Some(root_bank));
         }
+
+        // FIREDANCER: Send the stake weights needed to compute the leader schedule for the current epoch as well.
+        unsafe { Self::firedancer_send_leader_schedule( leader_schedule_epoch-1, root_bank, &mut cache.firedancer_channel ); }
         cache
     }
 
@@ -260,57 +263,62 @@ impl LeaderScheduleCache {
                 Self::retain_latest(cached_schedules, order, self.max_schedules());
             }
             // FIREDANCER: New leader schedule has been computed, ensure that
-            // it is communicated to the pack tile so it knows when it should
-            // start packing blocks. This will block until it can send the
-            // update.
+            // we communicate the stake weights used to generate it so that 
+            // Firedancer can generate the same leader schedule.  For example,
+            // the pack tile needs this to know when it should start packing
+            // blocks. This call will block until it can send the update.
             if rooted {
-                let (first_slot, last_slot) = (bank.epoch_schedule().get_first_slot_in_epoch(epoch), bank.epoch_schedule().get_last_slot_in_epoch(epoch));
-                if let Some(firedancer_channel) = self.firedancer_channel.as_ref() {
-                    let (mcache, dcache, _, fctl, cr_avail) = &mut *firedancer_channel.write().unwrap();
-                    unsafe {
-                        Self::firedancer_send_leader_schedule(epoch, first_slot, last_slot, &leader_schedule, mcache, dcache, fctl, cr_avail);
-                    }
-                }
+                unsafe{ Self::firedancer_send_leader_schedule( epoch, bank, &self.firedancer_channel ); }
             }
             leader_schedule
         })
     }
 
-    /// FIREDANCER: Send the leader schedule over the IPC boundary to Firedancer.
+    /// FIREDANCER: Send the stake weights used to compute the leader schedule over the IPC boundary to Firedancer.
     unsafe fn firedancer_send_leader_schedule(
         epoch: Epoch,
-        first_slot: Slot,
-        last_slot: Slot,
-        leader_schedule: &Arc<LeaderSchedule>,
-        mcache: &mut solana_firedancer::MCache,
-        dcache: &mut solana_firedancer::DCache,
-        fctl: &mut solana_firedancer::FCtl,
-        cr_avail: &mut u64,
+        bank: &Bank,
+        firedancer_channel: &Option<RwLock<(solana_firedancer::MCache, solana_firedancer::DCache, solana_firedancer::FSeq, solana_firedancer::FCtl<'static, 'static>, u64)>>
     ) {
+
+        if let Some(firedancer_channel) = firedancer_channel.as_ref() {
+            let (mcache, dcache, _, fctl, cr_avail) = &mut *firedancer_channel.write().unwrap();
+           
         while *cr_avail == 0 {
             *cr_avail = fctl.tx_cr_update(*cr_avail, mcache);
             std::hint::spin_loop();
         }
 
+        let (first_slot, slot_cnt) = (bank.epoch_schedule().get_first_slot_in_epoch(epoch), bank.epoch_schedule().get_slots_in_epoch(epoch));
+        let stakes = bank.epoch_staked_nodes(epoch).map(|stakes| {
+            let mut stakes: Vec<_> = stakes
+                .iter()
+                .map(|(pubkey, stake)| (*pubkey, *stake))
+                .collect();
+            leader_schedule_utils::sort_stakes(&mut stakes);
+            stakes
+        }).unwrap();
+
         let memory = dcache.write(FIREDANCER_PACKET_SZ as usize);
 
-        let leaders = leader_schedule.get_slot_leaders();
-        if leaders.len() > FIREDANCER_LEADER_CNT as usize {
-            panic!("unable to communicate leader schedule to Firedancer, incorrect leader count");
+        if stakes.len() > FIREDANCER_STAKE_WEIGHT_CNT as usize {
+            panic!("unable to communicate leader schedule to Firedancer, too many stake weights");
         }
 
         memory[0..8].copy_from_slice(&epoch.to_le_bytes());
-        memory[8..16].copy_from_slice(&first_slot.to_le_bytes());
-        memory[16..24].copy_from_slice(&last_slot.to_le_bytes());
-        for (i, pubkey) in leaders.iter().enumerate() {
-            let offset = 24 + i * 32;
+        memory[8..16].copy_from_slice(&stakes.len().to_le_bytes());
+        memory[16..24].copy_from_slice(&first_slot.to_le_bytes());
+        memory[24..32].copy_from_slice(&slot_cnt.to_le_bytes());
+        for (i, (pubkey, stake)) in stakes.iter().enumerate() {
+            let offset = 32 + i * 40;
             memory[offset..offset+32].copy_from_slice(&pubkey.to_bytes());
+            memory[offset+32..offset+40].copy_from_slice(&stake.to_le_bytes());
         }
-        assert_eq!(leaders.len() as u64, last_slot-first_slot + 1);
 
         mcache.publish(2, dcache.chunk(), 0, solana_firedancer::MCacheCtl::None, 0, 0);
         *cr_avail -= 1;
         dcache.compact_next(FIREDANCER_PACKET_SZ);
+    }
     }
 
     fn retain_latest(

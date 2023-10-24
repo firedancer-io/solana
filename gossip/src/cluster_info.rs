@@ -2781,9 +2781,9 @@ impl ClusterInfo {
                 let mut firedancer_channel = firedancer_app_name.map(|firedancer_app_name| {
                     let last_update = Instant::now() - Duration::from_secs(5);
                     let pack_pod = unsafe { Pod::join_default(format!("{}_bank_shred.wksp", firedancer_app_name)).unwrap() };
-                    let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_contact_info_shred_0").unwrap()).unwrap() };
-                    let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_contact_info_shred_0").unwrap(), Self::FIREDANCER_CLUSTER_NODE_SZ).unwrap() };
-                    let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_contact_info_shred_0").unwrap()).unwrap() };
+                    let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_contact_shred_0").unwrap()).unwrap() };
+                    let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_contact_shred_0").unwrap(), Self::FIREDANCER_CLUSTER_NODE_SZ).unwrap() };
+                    let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_contact_shred_0").unwrap()).unwrap() };
                     let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
                     let firedancer_cr_avail: u64 = 0; // first loop will refresh
                     (last_update, firedancer_mcache, firedancer_dcache, firedancer_fseq, firedancer_fctl, firedancer_cr_avail)
