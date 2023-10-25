@@ -1065,7 +1065,7 @@ impl Validator {
             exit.clone(),
             // FIREDANCER: Don't pass app name here, we don't need to set shred version because this
             // is done by the bootstrap gossip service, not the main validator one.
-            None,
+            Some((firedancer_app_name.clone(), false)),
         );
         let serve_repair = ServeRepair::new(
             cluster_info.clone(),

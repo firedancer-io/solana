@@ -1667,6 +1667,7 @@ impl ClusterInfo {
     // FIREDANCER: Receive a u16 where we can tell Firedancer what the shred version we received
     // over gossip is.
     fn process_entrypoints(&self, firedancer_shred_version: &mut Option<solana_firedancer::ULong>) -> bool {
+        warn!("Process entrypoints. Firedancer shred version is Some? {}", firedancer_shred_version.is_some());
         let mut entrypoints = self.entrypoints.write().unwrap();
         if entrypoints.is_empty() {
             // No entrypoint specified.  Nothing more to process
@@ -1691,6 +1692,7 @@ impl ClusterInfo {
                 .iter()
                 .find(|entrypoint| entrypoint.shred_version() != 0)
             {
+                warn!("Updating shred version to {:?}. Firedancer shred version is Some? {}", entrypoint.shred_version(), firedancer_shred_version.is_some());
                 info!(
                     "Setting shred version to {:?} from entrypoint {:?}",
                     entrypoint.shred_version(),
@@ -1782,6 +1784,7 @@ impl ClusterInfo {
         Builder::new()
             .name("solGossip".to_string())
             .spawn(move || {
+                warn!("Gossip started. Firedancer app name is {:#?}", firedancer_app_name);
                 // FIREDANCER: Find the location of the u16 we need to update to tell
                 // Firedancer what the shred version we received over gossip was.
                 use solana_firedancer::*;
@@ -2783,7 +2786,7 @@ impl ClusterInfo {
                     let pack_pod = unsafe { Pod::join_default(format!("{}_bank_shred.wksp", firedancer_app_name)).unwrap() };
                     let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(pack_pod.try_query("mcache_contact_shred_0").unwrap()).unwrap() };
                     let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(pack_pod.try_query("dcache_contact_shred_0").unwrap(), Self::FIREDANCER_CLUSTER_NODE_SZ).unwrap() };
-                    let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_contact_shred_0").unwrap()).unwrap() };
+                    let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(pack_pod.try_query("fseq_contact_shred_0_shred_0").unwrap()).unwrap() };
                     let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
                     let firedancer_cr_avail: u64 = 0; // first loop will refresh
                     (last_update, firedancer_mcache, firedancer_dcache, firedancer_fseq, firedancer_fctl, firedancer_cr_avail)

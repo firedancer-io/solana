@@ -172,7 +172,7 @@ fn start_gossip_node(
         None,
         gossip_exit_flag.clone(),
         // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
-        Some(firedancer_app_name),
+        Some((firedancer_app_name, true)),
     );
     (cluster_info, gossip_exit_flag, gossip_service)
 }

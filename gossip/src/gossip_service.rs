@@ -40,8 +40,9 @@ impl GossipService {
         should_check_duplicate_instance: bool,
         stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
         exit: Arc<AtomicBool>,
-        // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
-        firedancer_app_name: Option<String>,
+        // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version or the cluster nodes contact
+        // true means just shred version
+        firedancer_app_name: Option<(String, bool)>,
     ) -> Self {
         let (request_sender, request_receiver) = unbounded();
         let gossip_socket = Arc::new(gossip_socket);
@@ -50,6 +51,7 @@ impl GossipService {
             &cluster_info.id(),
             gossip_socket.local_addr().unwrap()
         );
+        warn!("Starting GossipService. Firedancer app name is {:#?}", firedancer_app_name);
         let socket_addr_space = *cluster_info.socket_addr_space();
         let t_receiver = streamer::receiver(
             gossip_socket.clone(),
@@ -67,6 +69,7 @@ impl GossipService {
             consume_sender,
             exit.clone(),
         );
+
         let (response_sender, response_receiver) = unbounded();
         let t_listen = cluster_info.clone().listen(
             bank_forks.clone(),
@@ -76,13 +79,21 @@ impl GossipService {
             exit.clone(),
             // FIREDANCER: Application name passed through so we communicate cluster nodes contact
             // info updates over IPC.
-            firedancer_app_name.clone(),
+            match firedancer_app_name.clone() {
+                Some((firedancer_app_name, false)) => Some(firedancer_app_name),
+                _ => None
+            }
         );
         let t_gossip =
             cluster_info
                 .clone()
                 // FIREDANCER: Receive app name so we can find IPC structures to tell Firedancer the shred version
-                .gossip(bank_forks, response_sender, gossip_validators, exit, firedancer_app_name);
+                .gossip(bank_forks, response_sender, gossip_validators, exit, 
+                    match firedancer_app_name.clone() {
+                        Some((firedancer_app_name, true)) => Some(firedancer_app_name),
+                        _ => None
+                      }
+                    );
         let t_responder = streamer::responder(
             "Gossip",
             gossip_socket,
