@@ -7156,6 +7156,7 @@ dependencies = [
  "solana-download-utils",
  "solana-entry",
  "solana-faucet",
+ "solana-firedancer",
  "solana-genesis-utils",
  "solana-geyser-plugin-interface",
  "solana-geyser-plugin-manager",
