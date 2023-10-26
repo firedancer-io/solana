@@ -70,6 +70,9 @@ solana-vote-program = { workspace = true }
 symlink = { workspace = true }
 thiserror = { workspace = true }
 
+# FIREDANCER: Add required Firedancer dependencies.
+solana-firedancer = { workspace = true }
+
 [dev-dependencies]
 solana-account-decoder = { workspace = true }
 spl-token-2022 = { workspace = true, features = ["no-entrypoint"] }
