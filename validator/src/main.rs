@@ -1801,6 +1801,16 @@ where
     let firedancer_tpu_port = value_t_or_exit!(matches, "firedancer_tpu_port", u16);
     let firedancer_tvu_port = value_t_or_exit!(matches, "firedancer_tvu_port", u16);
 
+    // FIREDANCER: Send shred version that we retrieved from the command line or the entrypoint above to Firedancer
+    if let Some(shred_version) = expected_shred_version {
+        use solana_firedancer::*;
+        let shred_pod = unsafe { Pod::join_default(format!("{}_shred.wksp", firedancer_app_name)).unwrap() };
+        unsafe {
+            let firedancer_shred_version = ULong::join::<GlobalAddress>(shred_pod.try_query("shred_version").unwrap()).unwrap();
+            *firedancer_shred_version.value = shred_version as u64;
+        }
+    }
+
     let mut node = Node::new_with_external_ip(
         &identity_keypair.pubkey(),
         &gossip_addr,
