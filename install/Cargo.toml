@@ -12,7 +12,7 @@ edition = { workspace = true }
 [dependencies]
 atty = { workspace = true }
 bincode = { workspace = true }
-bzip2 = { workspace = true }
+bzip2 = { workspace = true, features = ["static"] }
 chrono = { workspace = true, features = ["default", "serde"] }
 clap = { workspace = true }
 console = { workspace = true }

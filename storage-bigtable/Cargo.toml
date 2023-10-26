@@ -13,7 +13,7 @@ edition = { workspace = true }
 backoff = { workspace = true, features = ["tokio"] }
 bincode = { workspace = true }
 bytes = { workspace = true }
-bzip2 = { workspace = true }
+bzip2 = { workspace = true, features = ["static"] }
 enum-iterator = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
