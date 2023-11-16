@@ -52,6 +52,7 @@ where
             .and_modify(|stake_sum| *stake_sum = stake_sum.saturating_add(*stake as u128))
             .or_insert(*stake as u128);
         total_stake = total_stake.saturating_add(*stake as u128);
+//        log::info!("Pubkey {} Estimate {} Stake {} Vote Slot {} Vote Timestamp {}", vote_pubkey, estimate, *stake, *timestamp, *timestamp_slot);
     }
     if total_stake == 0 {
         return None;
@@ -61,6 +62,7 @@ where
     // Populate `estimate` with stake-weighted median timestamp
     for (timestamp, stake) in stake_per_timestamp.into_iter() {
         stake_accumulator = stake_accumulator.saturating_add(stake);
+        log::info!("Timestamp {} Elem stake {} Curr stake {} Total stake cmp {}", timestamp, stake, stake_accumulator, total_stake/2);
         if stake_accumulator > total_stake / 2 {
             estimate = timestamp;
             break;
