@@ -1,6 +1,8 @@
 #![deny(clippy::arithmetic_side_effects)]
 #![deny(clippy::indexing_slicing)]
 
+use solana_rbpf::static_analysis::Analysis;
+
 pub mod serialization;
 pub mod syscalls;
 
@@ -126,8 +128,8 @@ macro_rules! deploy_program {
         let deployment_program_runtime_environment = create_program_runtime_environment_v1(
             &$invoke_context.feature_set,
             $invoke_context.get_compute_budget(),
-            true, /* deployment */
-            false, /* debugging_features */
+            false, /* deployment */
+            true, /* debugging_features */
         ).map_err(|e| {
             ic_msg!($invoke_context, "Failed to register syscalls: {}", e);
             InstructionError::ProgramEnvironmentSetupFailure
@@ -1517,6 +1519,7 @@ fn process_loader_instruction(invoke_context: &mut InvokeContext) -> Result<(), 
     Ok(())
 }
 
+
 fn execute<'a, 'b: 'a>(
     executable: &'a Executable<InvokeContext<'static>>,
     invoke_context: &'a mut InvokeContext<'b>,
@@ -1587,6 +1590,19 @@ fn execute<'a, 'b: 'a>(
 
         execute_time = Measure::start("execute");
         let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);
+        
+        let mut trace_buffer = Vec::new();
+        let analysis = Analysis::from_executable(executable).unwrap();
+        let log = vm.context_object_pointer.syscall_context
+                        .last()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .trace_log.as_slice();
+        log::info!("Len {} Flag {}\n", log.len(), executable.get_config().enable_instruction_tracing);
+        analysis.disassemble_trace_log(&mut trace_buffer, log)?;
+        let trace_string = String::from_utf8(trace_buffer).unwrap();
+        log::info!("BPF Program Instruction Trace:\n{}", trace_string);
         drop(vm);
         ic_logger_msg!(
             log_collector,
@@ -1715,7 +1731,7 @@ pub mod test_utils {
             &invoke_context.feature_set,
             invoke_context.get_compute_budget(),
             false, /* deployment */
-            false, /* debugging_features */
+            true, /* debugging_features */
         );
         let program_runtime_environment = Arc::new(program_runtime_environment.unwrap());
         let num_accounts = invoke_context.transaction_context.get_number_of_accounts();

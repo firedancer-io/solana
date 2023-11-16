@@ -8177,7 +8177,7 @@ impl Bank {
                 &self.feature_set,
                 &self.runtime_config.compute_budget.unwrap_or_default(),
                 false, /* deployment */
-                false, /* debugging_features */
+                true, /* debugging_features */
             )
             .unwrap();
             let mut loaded_programs_cache = self.loaded_programs_cache.write().unwrap();
