@@ -1,3 +1,5 @@
+use solana_rbpf::{static_analysis::Analysis, ebpf};
+
 use {
     crate::{
         accounts_data_meter::AccountsDataMeter,

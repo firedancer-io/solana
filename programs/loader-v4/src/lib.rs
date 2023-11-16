@@ -706,7 +706,7 @@ mod tests {
                     .environments
                     .program_runtime_v2 = Arc::new(create_program_runtime_environment_v2(
                     &ComputeBudget::default(),
-                    false,
+                    true,
                 ));
                 load_all_invoked_programs(invoke_context);
             },

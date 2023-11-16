@@ -2023,8 +2023,8 @@ fn read_and_verify_elf(program_location: &str) -> Result<Vec<u8>, Box<dyn std::e
     let program_runtime_environment = create_program_runtime_environment_v1(
         &FeatureSet::all_enabled(),
         &ComputeBudget::default(),
-        true,
         false,
+        true,
     )
     .unwrap();
     let executable =
