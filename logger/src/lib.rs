@@ -5,6 +5,8 @@ use {
     std::sync::{Arc, RwLock},
 };
 
+use solana_firedancer::FDLoggerShim;
+
 lazy_static! {
     static ref LOGGER: Arc<RwLock<env_logger::Logger>> =
         Arc::new(RwLock::new(env_logger::Logger::from_default_env()));
@@ -27,7 +29,14 @@ impl log::Log for LoggerShim {
 fn replace_logger(logger: env_logger::Logger) {
     log::set_max_level(logger.filter());
     *LOGGER.write().unwrap() = logger;
-    let _ = log::set_boxed_logger(Box::new(LoggerShim {}));
+    // Firedancer:
+    // We want to have a unified log for solana and firedancer.
+    // So we define our own FDLoggerShim at firedancer/src/log.rs
+    // that implements the same functions as LoggerShim. Instead
+    // of calling the env_logger functions, it calls the C logging
+    // functions defined in fd_log.h.
+    // let _ = log::set_boxed_logger(Box::new(LoggerShim {}));
+    let _ = log::set_boxed_logger(Box::new(FDLoggerShim {}));
 }
 
 // Configures logging with a specific filter overriding RUST_LOG.  _RUST_LOG is used instead

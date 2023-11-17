@@ -13,6 +13,7 @@ edition = { workspace = true }
 env_logger = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
+solana-firedancer = { workspace = true }
 
 [lib]
 name = "solana_logger"

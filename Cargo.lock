@@ -5698,6 +5698,7 @@ name = "solana-firedancer"
 version = "1.17.1006"
 dependencies = [
  "firedancer-sys",
+ "log",
  "paste",
 ]
 
@@ -6104,6 +6105,7 @@ dependencies = [
  "env_logger",
  "lazy_static",
  "log",
+ "solana-firedancer",
 ]
 
 [[package]]
