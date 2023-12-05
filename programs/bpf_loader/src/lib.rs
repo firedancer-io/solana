@@ -1,6 +1,8 @@
 #![deny(clippy::arithmetic_side_effects)]
 #![deny(clippy::indexing_slicing)]
 
+use std::str::FromStr;
+
 use solana_rbpf::static_analysis::Analysis;
 
 pub mod serialization;
@@ -1582,6 +1584,7 @@ fn execute<'a, 'b: 'a>(
     let mut execute_time;
     let execution_result = {
         let compute_meter_prev = invoke_context.get_remaining();
+        let slot = invoke_context.get_sysvar_cache().get_clock().unwrap().slot;
         create_vm!(vm, executable, regions, accounts_metadata, invoke_context,);
         let mut vm = match vm {
             Ok(info) => info,
@@ -1595,18 +1598,20 @@ fn execute<'a, 'b: 'a>(
         execute_time = Measure::start("execute");
         let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);
         
-        let mut trace_buffer = Vec::new();
-        let analysis = Analysis::from_executable(executable).unwrap();
-        let log = vm.context_object_pointer.syscall_context
-                        .last()
-                        .unwrap()
-                        .as_ref()
-                        .unwrap()
-                        .trace_log.as_slice();
-        log::info!("Len {} Flag {}\n", log.len(), executable.get_config().enable_instruction_tracing);
-        analysis.disassemble_trace_log(&mut trace_buffer, log)?;
-        let trace_string = String::from_utf8(trace_buffer).unwrap();
-        log::info!("BPF Program Instruction Trace:\n{}", trace_string);
+        if false {
+            let mut trace_buffer = Vec::new();
+            let analysis = Analysis::from_executable(executable).unwrap();
+            let log = vm.context_object_pointer.syscall_context
+                            .last()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                            .trace_log.as_slice();
+            analysis.disassemble_trace_log(&mut trace_buffer, log)?;
+            let trace_string = String::from_utf8(trace_buffer).unwrap();
+            log::info!("BPF Program Instruction Trace:\n{}", trace_string);
+        }
+        
         drop(vm);
         ic_logger_msg!(
             log_collector,
