@@ -7971,6 +7971,10 @@ impl AccountsDb {
             hashes.retain(|(pubkey, _hash)| !self.is_filler_account(pubkey));
         }
 
+        info!("slot: {} hashes.len {}", slot, hashes.len());
+        for (i, hash) in hashes.iter().enumerate() {
+            info!("Index {} Account {} Hash {}", i, hash.0, hash.1);
+        }
         let accounts_delta_hash =
             AccountsDeltaHash(AccountsHasher::accumulate_account_hashes(hashes));
         accumulate.stop();
