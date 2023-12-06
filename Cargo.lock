@@ -5182,6 +5182,7 @@ dependencies = [
  "flate2",
  "fnv",
  "fs-err",
+ "hex",
  "im",
  "index_list",
  "itertools",

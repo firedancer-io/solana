@@ -60,6 +60,7 @@ strum_macros = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
+hex = { wrokspace = true }
 
 [lib]
 crate-type = ["lib"]
