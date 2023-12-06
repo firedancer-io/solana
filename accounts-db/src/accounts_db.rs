@@ -6228,7 +6228,11 @@ impl AccountsDb {
         hasher.update(owner.as_ref());
         hasher.update(pubkey.as_ref());
 
-        Hash::new_from_array(hasher.finalize().into())
+        let ret =  Hash::new_from_array(hasher.finalize().into());
+        info!(
+            "hash_account_data_compare: pubkey: ({}) slot: ({}) lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) data: ({})",
+             pubkey, slot, lamports, owner, executable as u64, rent_epoch, data.len(), ret, hex::encode(data));
+        ret
     }
 
     fn bulk_assign_write_version(&self, count: usize) -> StoredMetaWriteVersion {
