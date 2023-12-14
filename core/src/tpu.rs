@@ -111,6 +111,9 @@ impl Tpu {
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
         block_production_method: BlockProductionMethod,
         _generator_config: Option<GeneratorConfig>, /* vestigial code for replay invalidator */
+        // FIREDANCER: App name is passed down to the banking stage so it can initialize
+        // from a workspace.
+        firedancer_app_name: String,
     ) -> Self {
         let TpuSockets {
             transactions: transactions_sockets,
