@@ -396,7 +396,7 @@ impl ClusterInfoVoteListener {
         let metric_in_pod = unsafe { Pod::join_default(format!("{}_metric_in.wksp", firedancer_app_name)).unwrap() };
 
         let mut firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(dedup_pack_pod.try_query("mcache_gossip_pack_0").unwrap()).unwrap() };
-        let mut firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(dedup_pack_pod.try_query("dcache_gossip_pack_0").unwrap(), 2094).unwrap() };
+        let mut firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(dedup_pack_pod.try_query("dcache_gossip_pack_0").unwrap(), 2086).unwrap() };
         let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(metric_in_pod.try_query("fseq_gossip_pack_0_pack_0").unwrap()).unwrap() };
         let mut firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
         let mut firedancer_cr_avail = 0; // first loop will refresh
