@@ -2761,11 +2761,11 @@ impl ClusterInfo {
                 use solana_firedancer::*;
                 let mut firedancer_channel = firedancer_app_name.map(|firedancer_app_name| {
                     let last_update = Instant::now() - Duration::from_secs(5);
-                    let bank_shred_pod = unsafe { Pod::join_default(format!("{}_bank_shred.wksp", firedancer_app_name)).unwrap() };
+                    let poh_shred_pod = unsafe { Pod::join_default(format!("{}_poh_shred.wksp", firedancer_app_name)).unwrap() };
                     let metric_in_pod = unsafe { Pod::join_default(format!("{}_metric_in.wksp", firedancer_app_name)).unwrap() };
 
-                    let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(bank_shred_pod.try_query("mcache_crds_shred_0").unwrap()).unwrap() };
-                    let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(bank_shred_pod.try_query("dcache_crds_shred_0").unwrap(), Self::FIREDANCER_CLUSTER_NODE_SZ).unwrap() };
+                    let firedancer_mcache = unsafe { MCache::join::<GlobalAddress>(poh_shred_pod.try_query("mcache_crds_shred_0").unwrap()).unwrap() };
+                    let firedancer_dcache = unsafe { DCache::join::<GlobalAddress>(poh_shred_pod.try_query("dcache_crds_shred_0").unwrap(), Self::FIREDANCER_CLUSTER_NODE_SZ).unwrap() };
                     let firedancer_fseq = unsafe { FSeq::join::<GlobalAddress>(metric_in_pod.try_query("fseq_crds_shred_0_shred_0").unwrap()).unwrap() };
                     let firedancer_fctl = FCtl::new(1, firedancer_mcache.depth(), 0, 0, &firedancer_fseq).unwrap();
                     let firedancer_cr_avail: u64 = 0; // first loop will refresh

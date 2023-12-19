@@ -397,6 +397,15 @@ impl BankingStage {
         prioritization_fee_cache: &Arc<PrioritizationFeeCache>,
     ) -> Self {
         assert!(num_threads >= MIN_TOTAL_THREADS);
+        // FIREDANCER: Committer for Firedancer transactions
+        committer::FIREDANCER_COMMITTER.store(
+            Box::into_raw(Box::new(Committer::new(
+                transaction_status_sender.clone(),
+                replay_vote_sender.clone(),
+                prioritization_fee_cache.clone(),
+            ))) as *const Committer as u64,
+            Ordering::Release,
+        );
         // Single thread to generate entries from many banks.
         // This thread talks to poh_service and broadcasts the entries once they have been recorded.
         // Once an entry has been recorded, its blockhash is registered with the bank.

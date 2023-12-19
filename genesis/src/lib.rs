@@ -27,7 +27,7 @@ mod main;
 /// build and distribute one binary. This exported function is what it calls to
 /// start up the Solana Labs child process side.
 #[no_mangle]
-pub extern "C" fn solana_genesis_main(argv: *const *const i8) {
+pub extern "C" fn fd_ext_genesis_main(argv: *const *const i8) {
     use std::os::unix::ffi::OsStringExt;
     use std::ffi::{CStr, OsString};
 
