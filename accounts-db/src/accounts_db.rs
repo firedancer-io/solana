@@ -6232,9 +6232,11 @@ impl AccountsDb {
         hasher.update(pubkey.as_ref());
 
         let ret =  Hash::new_from_array(hasher.finalize().into());
-        info!(
-            "hash_account_data_compare: pubkey: ({}) slot: ({}) lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) data: ({})",
-             pubkey, slot, lamports, owner, executable as u64, rent_epoch, data.len(), ret, hex::encode(data));
+        if false {
+            info!(
+                "hash_account_data_compare: pubkey: ({}) slot: ({}) lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) data: ({})",
+                 pubkey, slot, lamports, owner, executable as u64, rent_epoch, data.len(), ret, hex::encode(data));
+        }
         ret
     }
 
@@ -7978,10 +7980,10 @@ impl AccountsDb {
             hashes.retain(|(pubkey, _hash)| !self.is_filler_account(pubkey));
         }
 
-        info!("slot: {} hashes.len {}", slot, hashes.len());
-        for (i, hash) in hashes.iter().enumerate() {
-            info!("Index {} Account {} Hash {}", i, hash.0, hash.1);
-        }
+        // info!("slot: {} hashes.len {}", slot, hashes.len());
+        // for (i, hash) in hashes.iter().enumerate() {
+        //     info!("Index {} Account {} Hash {}", i, hash.0, hash.1);
+        // }
         let accounts_delta_hash =
             AccountsDeltaHash(AccountsHasher::accumulate_account_hashes(hashes));
         accumulate.stop();

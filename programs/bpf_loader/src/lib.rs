@@ -1580,7 +1580,7 @@ fn execute<'a, 'b: 'a>(
     let mut execute_time;
     let execution_result = {
         let compute_meter_prev = invoke_context.get_remaining();
-        let slot = invoke_context.get_sysvar_cache().get_clock().unwrap().slot;
+        let _slot = invoke_context.get_sysvar_cache().get_clock().unwrap().slot;
         create_vm!(vm, executable, regions, accounts_metadata, invoke_context,);
         let mut vm = match vm {
             Ok(info) => info,
