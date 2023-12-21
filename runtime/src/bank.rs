@@ -2709,6 +2709,9 @@ impl Bank {
         let stakes = self.stakes_cache.stakes();
         let stake_delegations = self.filter_stake_delegations(&stakes);
 
+        let delegations_len = self.stakes_cache.stakes().stake_delegations().len();
+        let filtered_delegations_len = stake_delegations.len();
+        info!("delegations len {delegations_len} filtered len {filtered_delegations_len}");
         // Obtain all unique voter pubkeys from stake delegations.
         fn merge(mut acc: HashSet<Pubkey>, other: HashSet<Pubkey>) -> HashSet<Pubkey> {
             if acc.len() < other.len() {
@@ -2730,6 +2733,7 @@ impl Bank {
                 )
                 .reduce(HashSet::default, merge)
         });
+        info!("Voter pubkeys len {}", voter_pubkeys.len());
         // Obtain vote-accounts for unique voter pubkeys.
         let cached_vote_accounts = stakes.vote_accounts();
         let solana_vote_program: Pubkey = solana_vote_program::id();
@@ -2800,6 +2804,13 @@ impl Bank {
                 .into_par_iter()
                 .for_each(push_stake_delegation);
         });
+
+        let map_len = vote_with_stake_delegations_map.iter()
+                                .fold(0, 
+                                    |mut map_len, delegation| { 
+                                        map_len += delegation.delegations.len(); map_len 
+                                    });
+        info!("Delegations map len {}", map_len);
         LoadVoteAndStakeAccountsResult {
             vote_with_stake_delegations_map,
             invalid_vote_keys,
@@ -2877,6 +2888,7 @@ impl Bank {
         );
 
         if let Some(point_value) = point_value {
+            info!("Point values {} {}", point_value.points, point_value.rewards);
             let (vote_account_rewards, stake_rewards) = self.redeem_rewards(
                 vote_with_stake_delegations_map,
                 rewarded_epoch,
@@ -2886,6 +2898,7 @@ impl Bank {
                 reward_calc_tracer.as_ref(),
                 metrics,
             );
+            info!("Vote rewards len {} stake rewards len {}", vote_account_rewards.len(), stake_rewards.len());
 
             // this checking of an unactivated feature can be enabled in tests or with a validator by passing `--partitioned-epoch-rewards-compare-calculation`
             if self
@@ -3358,6 +3371,7 @@ impl Bank {
                 .collect()
         }));
         metrics.redeem_rewards_us += measure.as_us();
+        // info!("Vote rewards len {} stake rewards len {}", vote_account_rewards.len(), stake_rewards.len());
         (vote_account_rewards, stake_rewards)
     }
 
@@ -7008,8 +7022,9 @@ impl Bank {
             .accounts_db
             .get_bank_hash_stats(slot)
             .expect("No bank hash stats were found for this bank, that should not be possible");
+        let delegations_len = self.stakes_cache.stakes().stake_delegations().len();
         info!(
-            "bank frozen: {slot} hash: {hash} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}{}, stats: {bank_hash_stats:?}",
+            "bank frozen: {slot} hash: {hash} delegations: {delegations_len} accounts_delta: {} signature_count: {} last_blockhash: {} capitalization: {}{}, stats: {bank_hash_stats:?}",
             accounts_delta_hash.0,
             self.signature_count(),
             self.last_blockhash(),
