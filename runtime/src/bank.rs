@@ -2413,7 +2413,7 @@ impl Bank {
         let validator_rewards = (validator_rate
             * prev_epoch_capitalization as f64
             * prev_epoch_duration_in_years) as u64;
-
+        info!("Rewards {validator_rewards} Rate {validator_rate}, Duration {prev_epoch_duration_in_years}, Capitalization {prev_epoch_capitalization}");
         PrevEpochInflationRewards {
             validator_rewards,
             prev_epoch_duration_in_years,
