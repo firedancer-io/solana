@@ -66,6 +66,7 @@ use {
     },
     solana_sdk::{
         clock::{BankId, Slot, MAX_PROCESSING_AGE, NUM_CONSECUTIVE_LEADER_SLOTS},
+        feature_set,
         genesis_config::ClusterType,
         hash::Hash,
         pubkey::Pubkey,
@@ -1238,8 +1239,12 @@ impl ReplayStage {
             let duplicate_slots = blockstore
                 .duplicate_slots_iterator(bank_forks.root_bank().slot())
                 .unwrap();
-            let duplicate_slot_hashes = duplicate_slots
-                .filter_map(|slot| bank_forks.bank_hash(slot).map(|hash| (slot, hash)));
+            let duplicate_slot_hashes = duplicate_slots.filter_map(|slot| {
+                let bank = bank_forks.get(slot)?;
+                bank.feature_set
+                    .is_active(&feature_set::consume_blockstore_duplicate_proofs::id())
+                    .then_some((slot, bank.hash()))
+            });
             (
                 bank_forks.root_bank(),
                 bank_forks.frozen_banks().values().cloned().collect(),
@@ -1360,14 +1365,22 @@ impl ReplayStage {
                         );
                     }
 
-
                     // Should not dump slots for which we were the leader
                     if Some(*my_pubkey) == leader_schedule_cache.slot_leader_at(*duplicate_slot, None) {
-                            panic!("We are attempting to dump a block that we produced. \
-                                This indicates that we are producing duplicate blocks, \
-                                or that there is a bug in our runtime/replay code which \
-                                causes us to compute different bank hashes than the rest of the cluster. \
-                                We froze slot {duplicate_slot} with hash {frozen_hash:?} while the cluster hash is {correct_hash}");
+                        if let Some(bank) = bank_forks.read().unwrap().get(*duplicate_slot) {
+                            bank_hash_details::write_bank_hash_details_file(&bank)
+                                .map_err(|err| {
+                                    warn!("Unable to write bank hash details file: {err}");
+                                })
+                                .ok();
+                        } else {
+                            warn!("Unable to get bank for slot {duplicate_slot} from bank forks");
+                        }
+                        panic!("We are attempting to dump a block that we produced. \
+                            This indicates that we are producing duplicate blocks, \
+                            or that there is a bug in our runtime/replay code which \
+                            causes us to compute different bank hashes than the rest of the cluster. \
+                            We froze slot {duplicate_slot} with hash {frozen_hash:?} while the cluster hash is {correct_hash}");
                     }
 
                     let attempt_no = purge_repair_slot_counter
@@ -1518,7 +1531,11 @@ impl ReplayStage {
                     let bank = w_bank_forks
                         .remove(*slot)
                         .expect("BankForks should not have been purged yet");
-                    let _ = bank_hash_details::write_bank_hash_details_file(&bank);
+                    bank_hash_details::write_bank_hash_details_file(&bank)
+                        .map_err(|err| {
+                            warn!("Unable to write bank hash details file: {err}");
+                        })
+                        .ok();
                     ((*slot, bank.bank_id()), bank)
                 })
                 .unzip()
@@ -2107,7 +2124,11 @@ impl ReplayStage {
         );
 
         // If we previously marked this slot as duplicate in blockstore, let the state machine know
-        if !duplicate_slots_tracker.contains(&slot) && blockstore.get_duplicate_slot(slot).is_some()
+        if bank
+            .feature_set
+            .is_active(&feature_set::consume_blockstore_duplicate_proofs::id())
+            && !duplicate_slots_tracker.contains(&slot)
+            && blockstore.get_duplicate_slot(slot).is_some()
         {
             let duplicate_state = DuplicateState::new_from_state(
                 slot,
@@ -2871,7 +2892,10 @@ impl ReplayStage {
                     SlotStateUpdate::BankFrozen(bank_frozen_state),
                 );
                 // If we previously marked this slot as duplicate in blockstore, let the state machine know
-                if !duplicate_slots_tracker.contains(&bank.slot())
+                if bank
+                    .feature_set
+                    .is_active(&feature_set::consume_blockstore_duplicate_proofs::id())
+                    && !duplicate_slots_tracker.contains(&bank.slot())
                     && blockstore.get_duplicate_slot(bank.slot()).is_some()
                 {
                     let duplicate_state = DuplicateState::new_from_state(
@@ -2918,9 +2942,13 @@ impl ReplayStage {
                 Self::record_rewards(bank, rewards_recorder_sender);
                 if let Some(ref block_metadata_notifier) = block_metadata_notifier {
                     let block_metadata_notifier = block_metadata_notifier.read().unwrap();
+                    let parent_blockhash = bank
+                        .parent()
+                        .map(|bank| bank.last_blockhash())
+                        .unwrap_or_default();
                     block_metadata_notifier.notify_block_metadata(
                         bank.parent_slot(),
-                        &bank.parent_hash().to_string(),
+                        &parent_blockhash.to_string(),
                         bank.slot(),
                         &bank.last_blockhash().to_string(),
                         &bank.rewards,

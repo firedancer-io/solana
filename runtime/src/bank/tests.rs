@@ -7,9 +7,7 @@ use {
         *,
     },
     crate::{
-        accounts_background_service::{
-            AbsRequestSender, PrunedBanksRequestHandler, SendDroppedBankCallback,
-        },
+        accounts_background_service::{PrunedBanksRequestHandler, SendDroppedBankCallback},
         bank_client::BankClient,
         bank_forks::BankForks,
         epoch_rewards_hasher::hash_rewards_into_partitions,
@@ -973,232 +971,6 @@ fn test_rent_distribution() {
             })
             .sum::<u64>()
     );
-}
-
-#[test]
-fn test_distribute_rent_to_validators_overflow() {
-    solana_logger::setup();
-
-    // These values are taken from the real cluster (testnet)
-    const RENT_TO_BE_DISTRIBUTED: u64 = 120_525;
-    const VALIDATOR_STAKE: u64 = 374_999_998_287_840;
-
-    let validator_pubkey = solana_sdk::pubkey::new_rand();
-    let mut genesis_config =
-        create_genesis_config_with_leader(10, &validator_pubkey, VALIDATOR_STAKE).genesis_config;
-
-    let bank = Bank::new_for_tests(&genesis_config);
-    let old_validator_lamports = bank.get_balance(&validator_pubkey);
-    bank.distribute_rent_to_validators(&bank.vote_accounts(), RENT_TO_BE_DISTRIBUTED);
-    let new_validator_lamports = bank.get_balance(&validator_pubkey);
-    assert_eq!(
-        new_validator_lamports,
-        old_validator_lamports + RENT_TO_BE_DISTRIBUTED
-    );
-
-    genesis_config
-        .accounts
-        .remove(&feature_set::no_overflow_rent_distribution::id())
-        .unwrap();
-    let bank = std::panic::AssertUnwindSafe(Bank::new_for_tests(&genesis_config));
-    let old_validator_lamports = bank.get_balance(&validator_pubkey);
-    let new_validator_lamports = std::panic::catch_unwind(|| {
-        bank.distribute_rent_to_validators(&bank.vote_accounts(), RENT_TO_BE_DISTRIBUTED);
-        bank.get_balance(&validator_pubkey)
-    });
-
-    if let Ok(new_validator_lamports) = new_validator_lamports {
-        info!("asserting overflowing incorrect rent distribution");
-        assert_ne!(
-            new_validator_lamports,
-            old_validator_lamports + RENT_TO_BE_DISTRIBUTED
-        );
-    } else {
-        info!("NOT-asserting overflowing incorrect rent distribution");
-    }
-}
-
-#[test]
-fn test_distribute_rent_to_validators_rent_paying() {
-    solana_logger::setup();
-
-    const RENT_PER_VALIDATOR: u64 = 55;
-    const TOTAL_RENT: u64 = RENT_PER_VALIDATOR * 4;
-
-    let empty_validator = ValidatorVoteKeypairs::new_rand();
-    let rent_paying_validator = ValidatorVoteKeypairs::new_rand();
-    let becomes_rent_exempt_validator = ValidatorVoteKeypairs::new_rand();
-    let rent_exempt_validator = ValidatorVoteKeypairs::new_rand();
-    let keypairs = vec![
-        &empty_validator,
-        &rent_paying_validator,
-        &becomes_rent_exempt_validator,
-        &rent_exempt_validator,
-    ];
-    let genesis_config_info = create_genesis_config_with_vote_accounts(
-        sol_to_lamports(1000.),
-        &keypairs,
-        vec![sol_to_lamports(1000.); 4],
-    );
-    let mut genesis_config = genesis_config_info.genesis_config;
-    genesis_config.rent = Rent::default(); // Ensure rent is non-zero, as genesis_utils sets Rent::free by default
-
-    for deactivate_feature in [false, true] {
-        if deactivate_feature {
-            genesis_config
-                .accounts
-                .remove(&feature_set::prevent_rent_paying_rent_recipients::id())
-                .unwrap();
-        }
-        let bank = Bank::new_for_tests(&genesis_config);
-        let rent = bank.rent_collector().rent;
-        let rent_exempt_minimum = rent.minimum_balance(0);
-
-        // Make one validator have an empty identity account
-        let mut empty_validator_account = bank
-            .get_account_with_fixed_root(&empty_validator.node_keypair.pubkey())
-            .unwrap();
-        empty_validator_account.set_lamports(0);
-        bank.store_account(
-            &empty_validator.node_keypair.pubkey(),
-            &empty_validator_account,
-        );
-
-        // Make one validator almost rent-exempt, less RENT_PER_VALIDATOR
-        let mut becomes_rent_exempt_validator_account = bank
-            .get_account_with_fixed_root(&becomes_rent_exempt_validator.node_keypair.pubkey())
-            .unwrap();
-        becomes_rent_exempt_validator_account
-            .set_lamports(rent_exempt_minimum - RENT_PER_VALIDATOR);
-        bank.store_account(
-            &becomes_rent_exempt_validator.node_keypair.pubkey(),
-            &becomes_rent_exempt_validator_account,
-        );
-
-        // Make one validator rent-exempt
-        let mut rent_exempt_validator_account = bank
-            .get_account_with_fixed_root(&rent_exempt_validator.node_keypair.pubkey())
-            .unwrap();
-        rent_exempt_validator_account.set_lamports(rent_exempt_minimum);
-        bank.store_account(
-            &rent_exempt_validator.node_keypair.pubkey(),
-            &rent_exempt_validator_account,
-        );
-
-        let get_rent_state = |bank: &Bank, address: &Pubkey| -> RentState {
-            let account = bank
-                .get_account_with_fixed_root(address)
-                .unwrap_or_default();
-            RentState::from_account(&account, &rent)
-        };
-
-        // Assert starting RentStates
-        assert_eq!(
-            get_rent_state(&bank, &empty_validator.node_keypair.pubkey()),
-            RentState::Uninitialized
-        );
-        assert_eq!(
-            get_rent_state(&bank, &rent_paying_validator.node_keypair.pubkey()),
-            RentState::RentPaying {
-                lamports: 42,
-                data_size: 0,
-            }
-        );
-        assert_eq!(
-            get_rent_state(&bank, &becomes_rent_exempt_validator.node_keypair.pubkey()),
-            RentState::RentPaying {
-                lamports: rent_exempt_minimum - RENT_PER_VALIDATOR,
-                data_size: 0,
-            }
-        );
-        assert_eq!(
-            get_rent_state(&bank, &rent_exempt_validator.node_keypair.pubkey()),
-            RentState::RentExempt
-        );
-
-        let old_empty_validator_lamports = bank.get_balance(&empty_validator.node_keypair.pubkey());
-        let old_rent_paying_validator_lamports =
-            bank.get_balance(&rent_paying_validator.node_keypair.pubkey());
-        let old_becomes_rent_exempt_validator_lamports =
-            bank.get_balance(&becomes_rent_exempt_validator.node_keypair.pubkey());
-        let old_rent_exempt_validator_lamports =
-            bank.get_balance(&rent_exempt_validator.node_keypair.pubkey());
-
-        bank.distribute_rent_to_validators(&bank.vote_accounts(), TOTAL_RENT);
-
-        let new_empty_validator_lamports = bank.get_balance(&empty_validator.node_keypair.pubkey());
-        let new_rent_paying_validator_lamports =
-            bank.get_balance(&rent_paying_validator.node_keypair.pubkey());
-        let new_becomes_rent_exempt_validator_lamports =
-            bank.get_balance(&becomes_rent_exempt_validator.node_keypair.pubkey());
-        let new_rent_exempt_validator_lamports =
-            bank.get_balance(&rent_exempt_validator.node_keypair.pubkey());
-
-        // Assert ending balances; rent should be withheld if test is active and ending RentState
-        // is RentPaying, ie. empty_validator and rent_paying_validator
-        assert_eq!(
-            if deactivate_feature {
-                old_empty_validator_lamports + RENT_PER_VALIDATOR
-            } else {
-                old_empty_validator_lamports
-            },
-            new_empty_validator_lamports
-        );
-
-        assert_eq!(
-            if deactivate_feature {
-                old_rent_paying_validator_lamports + RENT_PER_VALIDATOR
-            } else {
-                old_rent_paying_validator_lamports
-            },
-            new_rent_paying_validator_lamports
-        );
-
-        assert_eq!(
-            old_becomes_rent_exempt_validator_lamports + RENT_PER_VALIDATOR,
-            new_becomes_rent_exempt_validator_lamports
-        );
-
-        assert_eq!(
-            old_rent_exempt_validator_lamports + RENT_PER_VALIDATOR,
-            new_rent_exempt_validator_lamports
-        );
-
-        // Assert ending RentStates
-        assert_eq!(
-            if deactivate_feature {
-                RentState::RentPaying {
-                    lamports: RENT_PER_VALIDATOR,
-                    data_size: 0,
-                }
-            } else {
-                RentState::Uninitialized
-            },
-            get_rent_state(&bank, &empty_validator.node_keypair.pubkey()),
-        );
-        assert_eq!(
-            if deactivate_feature {
-                RentState::RentPaying {
-                    lamports: old_rent_paying_validator_lamports + RENT_PER_VALIDATOR,
-                    data_size: 0,
-                }
-            } else {
-                RentState::RentPaying {
-                    lamports: old_rent_paying_validator_lamports,
-                    data_size: 0,
-                }
-            },
-            get_rent_state(&bank, &rent_paying_validator.node_keypair.pubkey()),
-        );
-        assert_eq!(
-            RentState::RentExempt,
-            get_rent_state(&bank, &becomes_rent_exempt_validator.node_keypair.pubkey()),
-        );
-        assert_eq!(
-            RentState::RentExempt,
-            get_rent_state(&bank, &rent_exempt_validator.node_keypair.pubkey()),
-        );
-    }
 }
 
 #[test]
@@ -2630,22 +2402,6 @@ fn test_transfer_to_sysvar() {
 }
 
 #[test]
-fn test_bank_deposit() {
-    let bank = create_simple_test_bank(100);
-
-    // Test new account
-    let key = solana_sdk::pubkey::new_rand();
-    let new_balance = bank.deposit(&key, 10).unwrap();
-    assert_eq!(new_balance, 10);
-    assert_eq!(bank.get_balance(&key), 10);
-
-    // Existing account
-    let new_balance = bank.deposit(&key, 3).unwrap();
-    assert_eq!(new_balance, 13);
-    assert_eq!(bank.get_balance(&key), 13);
-}
-
-#[test]
 fn test_bank_withdraw() {
     let bank = create_simple_test_bank(100);
 
@@ -2656,7 +2412,7 @@ fn test_bank_withdraw() {
         Err(TransactionError::AccountNotFound)
     );
 
-    bank.deposit(&key, 3).unwrap();
+    test_utils::deposit(&bank, &key, 3).unwrap();
     assert_eq!(bank.get_balance(&key), 3);
 
     // Low balance
@@ -6674,7 +6430,7 @@ fn test_clean_nonrooted() {
     // Store some lamports in bank 1
     let some_lamports = 123;
     let mut bank1 = Arc::new(Bank::new_from_parent(bank0.clone(), &Pubkey::default(), 1));
-    bank1.deposit(&pubkey0, some_lamports).unwrap();
+    test_utils::deposit(&bank1, &pubkey0, some_lamports).unwrap();
     goto_end_of_slot(Arc::<Bank>::get_mut(&mut bank1).unwrap());
     bank1.freeze();
     bank1.flush_accounts_cache_slot_for_tests();
@@ -6684,7 +6440,7 @@ fn test_clean_nonrooted() {
     // Store some lamports for pubkey1 in bank 2, root bank 2
     // bank2's parent is bank0
     let mut bank2 = Arc::new(Bank::new_from_parent(bank0, &Pubkey::default(), 2));
-    bank2.deposit(&pubkey1, some_lamports).unwrap();
+    test_utils::deposit(&bank2, &pubkey1, some_lamports).unwrap();
     bank2.store_account(&pubkey0, &account_zero);
     goto_end_of_slot(Arc::<Bank>::get_mut(&mut bank2).unwrap());
     bank2.freeze();
@@ -6699,7 +6455,7 @@ fn test_clean_nonrooted() {
     bank2.clean_accounts_for_tests();
 
     let mut bank3 = Arc::new(Bank::new_from_parent(bank2, &Pubkey::default(), 3));
-    bank3.deposit(&pubkey1, some_lamports + 1).unwrap();
+    test_utils::deposit(&bank3, &pubkey1, some_lamports + 1).unwrap();
     goto_end_of_slot(Arc::<Bank>::get_mut(&mut bank3).unwrap());
     bank3.freeze();
     bank3.squash();
@@ -6753,8 +6509,8 @@ fn test_shrink_candidate_slots_cached() {
     // Store some lamports in bank 1
     let some_lamports = 123;
     let mut bank1 = Arc::new(new_from_parent(bank0));
-    bank1.deposit(&pubkey1, some_lamports).unwrap();
-    bank1.deposit(&pubkey2, some_lamports).unwrap();
+    test_utils::deposit(&bank1, &pubkey1, some_lamports).unwrap();
+    test_utils::deposit(&bank1, &pubkey2, some_lamports).unwrap();
     goto_end_of_slot(Arc::<Bank>::get_mut(&mut bank1).unwrap());
     bank1.freeze();
     bank1.squash();
@@ -6764,7 +6520,7 @@ fn test_shrink_candidate_slots_cached() {
 
     // Store some lamports for pubkey1 in bank 2, root bank 2
     let mut bank2 = Arc::new(new_from_parent(bank1));
-    bank2.deposit(&pubkey1, some_lamports).unwrap();
+    test_utils::deposit(&bank2, &pubkey1, some_lamports).unwrap();
     bank2.store_account(&pubkey0, &account0);
     goto_end_of_slot(Arc::<Bank>::get_mut(&mut bank2).unwrap());
     bank2.freeze();
@@ -6961,7 +6717,7 @@ fn test_add_builtin_account_inherited_cap_while_replacing() {
             assert_ne!(bank.capitalization(), bank.calculate_capitalization(true));
             continue;
         }
-        bank.deposit(&program_id, 10).unwrap();
+        test_utils::deposit(&bank, &program_id, 10).unwrap();
         if pass == 2 {
             add_root_and_flush_write_cache(&bank);
             assert_eq!(bank.capitalization(), bank.calculate_capitalization(true));
@@ -6988,7 +6744,7 @@ fn test_add_builtin_account_squatted_while_not_replacing() {
             assert_ne!(bank.capitalization(), bank.calculate_capitalization(true));
             continue;
         }
-        bank.deposit(&program_id, 10).unwrap();
+        test_utils::deposit(&bank, &program_id, 10).unwrap();
         if pass == 1 {
             add_root_and_flush_write_cache(&bank);
             assert_eq!(bank.capitalization(), bank.calculate_capitalization(true));
@@ -7111,7 +6867,7 @@ fn test_add_precompiled_account_inherited_cap_while_replacing() {
             assert_ne!(bank.capitalization(), bank.calculate_capitalization(true));
             continue;
         }
-        bank.deposit(&program_id, 10).unwrap();
+        test_utils::deposit(&bank, &program_id, 10).unwrap();
         if pass == 2 {
             add_root_and_flush_write_cache(&bank);
             assert_eq!(bank.capitalization(), bank.calculate_capitalization(true));
@@ -7139,7 +6895,7 @@ fn test_add_precompiled_account_squatted_while_not_replacing() {
             assert_ne!(bank.capitalization(), bank.calculate_capitalization(true));
             continue;
         }
-        bank.deposit(&program_id, 10).unwrap();
+        test_utils::deposit(&bank, &program_id, 10).unwrap();
         if pass == 1 {
             add_root_and_flush_write_cache(&bank);
             assert_eq!(bank.capitalization(), bank.calculate_capitalization(true));
@@ -7230,7 +6986,7 @@ fn test_bank_load_program() {
     programdata_account.set_rent_epoch(1);
     bank.store_account_and_update_capitalization(&key1, &program_account);
     bank.store_account_and_update_capitalization(&programdata_key, &programdata_account);
-    let program = bank.load_program(&key1, false);
+    let program = bank.load_program(&key1, false, None);
     assert_matches!(program.program, LoadedProgramType::LegacyV1(_));
     assert_eq!(
         program.account_size,
@@ -7385,7 +7141,7 @@ fn test_bpf_loader_upgradeable_deploy_with_max_len() {
         assert_eq!(*elf.get(i).unwrap(), *byte);
     }
 
-    let loaded_program = bank.load_program(&program_keypair.pubkey(), false);
+    let loaded_program = bank.load_program(&program_keypair.pubkey(), false, None);
 
     // Invoke deployed program
     mock_process_instruction(
@@ -7975,7 +7731,7 @@ fn test_compute_active_feature_set() {
     assert!(!feature_set.is_active(&test_feature));
 
     // Depositing into the `test_feature` account should do nothing
-    bank.deposit(&test_feature, 42).unwrap();
+    test_utils::deposit(&bank, &test_feature, 42).unwrap();
     let (feature_set, new_activations) = bank.compute_active_feature_set(true);
     assert!(new_activations.is_empty());
     assert!(!feature_set.is_active(&test_feature));
@@ -7984,25 +7740,26 @@ fn test_compute_active_feature_set() {
     let feature = Feature::default();
     assert_eq!(feature.activated_at, None);
     bank.store_account(&test_feature, &feature::create_account(&feature, 42));
-
-    // Run `compute_active_feature_set` disallowing new activations
-    let (feature_set, new_activations) = bank.compute_active_feature_set(false);
-    assert!(new_activations.is_empty());
-    assert!(!feature_set.is_active(&test_feature));
     let feature = feature::from_account(&bank.get_account(&test_feature).expect("get_account"))
         .expect("from_account");
     assert_eq!(feature.activated_at, None);
 
-    // Run `compute_active_feature_set` allowing new activations
-    let (feature_set, new_activations) = bank.compute_active_feature_set(true);
+    // Run `compute_active_feature_set` excluding pending activation
+    let (feature_set, new_activations) = bank.compute_active_feature_set(false);
+    assert!(new_activations.is_empty());
+    assert!(!feature_set.is_active(&test_feature));
+
+    // Run `compute_active_feature_set` including pending activation
+    let (_feature_set, new_activations) = bank.compute_active_feature_set(true);
     assert_eq!(new_activations.len(), 1);
-    assert!(feature_set.is_active(&test_feature));
+    assert!(new_activations.contains(&test_feature));
+
+    // Actually activate the pending activation
+    bank.apply_feature_activations(ApplyFeatureActivationsCaller::NewFromParent, true);
     let feature = feature::from_account(&bank.get_account(&test_feature).expect("get_account"))
         .expect("from_account");
     assert_eq!(feature.activated_at, Some(1));
 
-    // Running `compute_active_feature_set` will not cause new activations, but
-    // `test_feature` is now be active
     let (feature_set, new_activations) = bank.compute_active_feature_set(true);
     assert!(new_activations.is_empty());
     assert!(feature_set.is_active(&test_feature));
@@ -12132,7 +11889,7 @@ fn test_is_in_slot_hashes_history() {
 }
 
 #[test]
-fn test_runtime_feature_enable_with_program_cache() {
+fn test_feature_activation_loaded_programs_recompilation_phase() {
     solana_logger::setup();
 
     // Bank Setup
@@ -12198,19 +11955,7 @@ fn test_runtime_feature_enable_with_program_cache() {
         &feature::create_account(&Feature { activated_at: None }, feature_account_balance),
     );
 
-    // Reroot to call LoadedPrograms::prune() and end the current recompilation phase
     goto_end_of_slot(&bank);
-    bank_forks
-        .write()
-        .unwrap()
-        .insert(Arc::into_inner(bank).unwrap());
-    let bank = bank_forks.read().unwrap().working_bank();
-    bank_forks.read().unwrap().prune_program_cache(bank.slot);
-    bank_forks
-        .write()
-        .unwrap()
-        .set_root(bank.slot, &AbsRequestSender::default(), None);
-
     // Advance to next epoch, which starts the next recompilation phase
     let bank = new_from_parent_next_epoch(bank, 1);
 

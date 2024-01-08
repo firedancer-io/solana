@@ -283,7 +283,7 @@ pub mod stake_deactivate_delinquent_instruction {
 }
 
 pub mod stake_redelegate_instruction {
-    solana_sdk::declare_id!("GUrp5BKMyDazsAp9mBoVD6orE5ihXNRPC3jkBRfx6Lq7");
+    solana_sdk::declare_id!("2KKG3C6RBnxQo9jVVrbzsoSh41TDXLK7gBc9gduyxSzW");
 }
 
 pub mod vote_withdraw_authority_may_change_authorized_voter {
@@ -370,7 +370,7 @@ pub mod update_rewards_from_cached_accounts {
     solana_sdk::declare_id!("28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9");
 }
 pub mod enable_partitioned_epoch_reward {
-    solana_sdk::declare_id!("HCnE3xQoZtDz9dSVm3jKwJXioTb6zMRbgwCmGg3PHHk8");
+    solana_sdk::declare_id!("41tVp5qR1XwWRt5WifvtSQyuxtqQWJgEK8w91AtBqSwP");
 }
 
 pub mod spl_token_v3_4_0 {
@@ -399,7 +399,7 @@ pub mod stake_raise_minimum_delegation_to_1_sol {
 }
 
 pub mod stake_minimum_delegation_for_rewards {
-    solana_sdk::declare_id!("ELjxSXwNsyXGfAh8TqX8ih22xeT8huF6UngQirbLKYKH");
+    solana_sdk::declare_id!("G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ");
 }
 
 pub mod add_set_compute_unit_price_ix {
@@ -720,6 +720,26 @@ pub mod update_hashes_per_tick6 {
     solana_sdk::declare_id!("FKu1qYwLQSiehz644H6Si65U5ZQ2cp9GxsyFUfYcuADv");
 }
 
+pub mod validate_fee_collector_account {
+    solana_sdk::declare_id!("prpFrMtgNmzaNzkPJg9o753fVvbHKqNrNTm76foJ2wm");
+}
+
+pub mod enable_zk_transfer_with_fee {
+    solana_sdk::declare_id!("zkNLP7EQALfC1TYeB3biDU7akDckj8iPkvh9y2Mt2K3");
+}
+
+pub mod drop_legacy_shreds {
+    solana_sdk::declare_id!("GV49KKQdBNaiv2pgqhS2Dy3GWYJGXMTVYbYkdk91orRy");
+}
+
+pub mod consume_blockstore_duplicate_proofs {
+    solana_sdk::declare_id!("6YsBCejwK96GZCkJ6mkZ4b68oP63z2PLoQmWjC7ggTqZ");
+}
+
+pub mod index_erasure_conflict_duplicate_proofs {
+    solana_sdk::declare_id!("dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa");
+}
+
 lazy_static! {
     /// Map of feature identifiers to user-visible description
     pub static ref FEATURE_NAMES: HashMap<Pubkey, &'static str> = [
@@ -895,6 +915,11 @@ lazy_static! {
         (update_hashes_per_tick4::id(), "Update desired hashes per tick to 7.6M"),
         (update_hashes_per_tick5::id(), "Update desired hashes per tick to 9.2M"),
         (update_hashes_per_tick6::id(), "Update desired hashes per tick to 10M"),
+        (validate_fee_collector_account::id(), "validate fee collector account #33888"),
+        (enable_zk_transfer_with_fee::id(), "enable Zk Token proof program transfer with fee"),
+        (drop_legacy_shreds::id(), "drops legacy shreds #34328"),
+        (consume_blockstore_duplicate_proofs::id(), "consume duplicate proofs from blockstore in consensus #34372"),
+        (index_erasure_conflict_duplicate_proofs::id(), "generate duplicate proofs for index and erasure conflicts #34360"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()

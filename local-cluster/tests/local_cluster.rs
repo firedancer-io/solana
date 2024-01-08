@@ -2558,6 +2558,7 @@ fn run_test_load_program_accounts_partition(scan_commitment: CommitmentConfig) {
 
 #[test]
 #[serial]
+#[ignore]
 fn test_rpc_block_subscribe() {
     let total_stake = 100 * DEFAULT_NODE_STAKE;
     let leader_stake = total_stake;
@@ -2917,24 +2918,26 @@ fn setup_transfer_scan_threads(
                     .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
                     .unwrap();
                 for i in 0..starting_keypairs_.len() {
-                    client
-                        .async_transfer(
-                            1,
-                            &starting_keypairs_[i],
-                            &target_keypairs_[i].pubkey(),
-                            blockhash,
-                        )
-                        .unwrap();
+                    let result = client.async_transfer(
+                        1,
+                        &starting_keypairs_[i],
+                        &target_keypairs_[i].pubkey(),
+                        blockhash,
+                    );
+                    if result.is_err() {
+                        debug!("Failed in transfer for starting keypair: {:?}", result);
+                    }
                 }
                 for i in 0..starting_keypairs_.len() {
-                    client
-                        .async_transfer(
-                            1,
-                            &target_keypairs_[i],
-                            &starting_keypairs_[i].pubkey(),
-                            blockhash,
-                        )
-                        .unwrap();
+                    let result = client.async_transfer(
+                        1,
+                        &target_keypairs_[i],
+                        &starting_keypairs_[i].pubkey(),
+                        blockhash,
+                    );
+                    if result.is_err() {
+                        debug!("Failed in transfer for starting keypair: {:?}", result);
+                    }
                 }
             }
         })

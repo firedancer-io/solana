@@ -2079,10 +2079,9 @@ fn test_program_sbf_invoke_in_same_tx_as_redeployment() {
     );
 
     // load_upgradeable_program sets clock sysvar to 1, which causes the program to be effective
-    // after 2 slots. So we need to advance the bank client by 2 slots here.
-    let bank = bank_client
-        .advance_slot(2, &Pubkey::default())
-        .expect("Failed to advance slot");
+    // after 2 slots. They need to be called individually to create the correct fork graph in between.
+    bank_client.advance_slot(1, &Pubkey::default()).unwrap();
+    let bank = bank_client.advance_slot(1, &Pubkey::default()).unwrap();
 
     // Prepare redeployment
     let buffer_keypair = Keypair::new();
@@ -2176,10 +2175,9 @@ fn test_program_sbf_invoke_in_same_tx_as_undeployment() {
     );
 
     // load_upgradeable_program sets clock sysvar to 1, which causes the program to be effective
-    // after 2 slots. So we need to advance the bank client by 2 slots here.
-    let bank = bank_client
-        .advance_slot(2, &Pubkey::default())
-        .expect("Failed to advance slot");
+    // after 2 slots. They need to be called individually to create the correct fork graph in between.
+    bank_client.advance_slot(1, &Pubkey::default()).unwrap();
+    let bank = bank_client.advance_slot(1, &Pubkey::default()).unwrap();
 
     // Prepare undeployment
     let (programdata_address, _) = Pubkey::find_program_address(
@@ -4413,12 +4411,18 @@ fn test_cpi_change_account_data_memory_allocation() {
 
         // Test changing the account data both in place and by changing the
         // underlying vector. CPI will have to detect the vector change and
-        // update the corresponding memory region. In both cases CPI will have
+        // update the corresponding memory region. In all cases CPI will have
         // to zero the spare bytes correctly.
-        if instruction_data[0] == 0xFE {
-            account.set_data(instruction_data.to_vec());
-        } else {
-            account.set_data_from_slice(instruction_data);
+        match instruction_data[0] {
+            0xFE => account.set_data(instruction_data.to_vec()),
+            0xFD => account.set_data_from_slice(instruction_data),
+            0xFC => {
+                // Exercise the update_caller_account capacity check where account len != capacity.
+                let mut data = instruction_data.to_vec();
+                data.reserve_exact(1);
+                account.set_data(data)
+            }
+            _ => panic!(),
         }
 
         Ok(())
