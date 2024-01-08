@@ -2370,11 +2370,13 @@ impl Bank {
             .filter_map(|id| self.feature_set.activated_slot(id))
             .collect::<Vec<_>>();
         slots.sort_unstable();
-        slots.first().cloned().unwrap_or_else(|| {
+        let x = slots.first().cloned().unwrap_or_else(|| {
             self.feature_set
                 .activated_slot(&feature_set::pico_inflation::id())
                 .unwrap_or(0)
-        })
+        });
+        info!("Inflation start slot {}", x);
+        x
     }
 
     fn get_inflation_num_slots(&self) -> u64 {
@@ -2413,7 +2415,7 @@ impl Bank {
         let validator_rewards = (validator_rate
             * prev_epoch_capitalization as f64
             * prev_epoch_duration_in_years) as u64;
-        info!("Rewards {validator_rewards} Rate {validator_rate}, Duration {prev_epoch_duration_in_years}, Capitalization {prev_epoch_capitalization}");
+        info!("Rewards {validator_rewards} Rate {validator_rate}, Duration {prev_epoch_duration_in_years}, Capitalization {prev_epoch_capitalization}, slot in year {slot_in_year}");
         PrevEpochInflationRewards {
             validator_rewards,
             prev_epoch_duration_in_years,
@@ -3488,6 +3490,7 @@ impl Bank {
                     if vote_needs_store {
                         self.store_account(&vote_pubkey, &vote_account);
                     }
+                    info!("Vote reward payment {} for {} needs store {}", vote_rewards, vote_pubkey, vote_needs_store);
 
                     Some((
                         vote_pubkey,
