@@ -6229,7 +6229,8 @@ impl AccountsDb {
         hasher.update(pubkey.as_ref());
 
         let ret =  Hash::new_from_array(hasher.finalize().into());
-        if slot == 223344008 {
+        // TODO(jsiegel): enable bank hash compare logs
+        if false {
             info!(
                 "hash_account_data_compare: pubkey: ({}) slot: ({}) lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) data: ({})",
                  pubkey, slot, lamports, owner, executable as u64, rent_epoch, data.len(), ret, hex::encode(data));

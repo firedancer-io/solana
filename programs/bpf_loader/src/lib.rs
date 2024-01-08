@@ -1,8 +1,6 @@
 #![deny(clippy::arithmetic_side_effects)]
 #![deny(clippy::indexing_slicing)]
 
-use std::str::FromStr;
-
 use solana_rbpf::static_analysis::Analysis;
 
 pub mod serialization;
@@ -1593,6 +1591,7 @@ fn execute<'a, 'b: 'a>(
         execute_time = Measure::start("execute");
         let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);
         
+        // TODO(jsiegel): enable tracing
         if false {
             let mut trace_buffer = Vec::new();
             let analysis = Analysis::from_executable(executable).unwrap();
