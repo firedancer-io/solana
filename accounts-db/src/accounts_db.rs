@@ -6153,7 +6153,7 @@ impl AccountsDb {
         let ret = Hash::new_from_array(hasher.finalize().into());
 
         info!(
-            "hash_account_data_compare: pubkey: ({}) slot: ({})  lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) includedata: ({})",
+            "hash_account_data_compare: pubkey: ({}) slot: ({}) lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) data: ({})",
              pubkey, slot, lamports, owner, executable as u64, rent_epoch, data.len(), ret, hex::encode(data));
 
         AccountHash(ret)
