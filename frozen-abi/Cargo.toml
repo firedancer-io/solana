@@ -32,7 +32,6 @@ subtle = { workspace = true }
 [target.'cfg(not(target_os = "solana"))'.dev-dependencies]
 bitflags = { workspace = true }
 solana-logger = { workspace = true }
-bitflags = { workspace = true }
 
 [build-dependencies]
 rustc_version = { workspace = true }

@@ -7,38 +7,25 @@ use {
         stable_log,
         sysvar_cache::SysvarCache,
         timings::{ExecuteDetailsTimings, ExecuteTimings},
-    },
-    base64::Engine,
-    solana_measure::measure::Measure,
-    solana_rbpf::{
+    }, base64::Engine, serde::Serialize, serde_with::serde_as, solana_measure::measure::Measure, solana_rbpf::{
         ebpf::MM_HEAP_START,
         error::{EbpfError, ProgramResult},
         memory_region::MemoryMapping,
         program::{BuiltinFunction, SBPFVersion},
         vm::{Config, ContextObject, EbpfVm},
-    },
-    solana_sdk::{
-        account::AccountSharedData,
-        bpf_loader_deprecated,
-        feature_set::FeatureSet,
-        hash::Hash,
-        instruction::{AccountMeta, InstructionError},
-        native_loader,
-        pubkey::Pubkey,
-        saturating_add_assign,
-        clock::Epoch,
-        stable_layout::stable_instruction::StableInstruction,
-        transaction_context::{
+    }, solana_sdk::{
+        account::AccountSharedData, bpf_loader_deprecated, clock::Epoch, feature_set::FeatureSet, hash::Hash, instruction::{AccountMeta, InstructionError}, native_loader, pubkey::Pubkey, saturating_add_assign, stable_layout::stable_instruction::StableInstruction, transaction_context::{
             IndexOfAccount, InstructionAccount, TransactionAccount, TransactionContext,
-        },
+        }
+    }, std::{
+        alloc::Layout, cell::RefCell, fmt::{self, Debug}, rc::Rc, str::FromStr, sync::{atomic::Ordering, Arc}
     },
-    std::{
-        alloc::Layout,
-        cell::RefCell,
-        fmt::{self, Debug},
-        rc::Rc,
-        sync::{atomic::Ordering, Arc},
-    },
+    serde_with::DisplayFromStr,
+    std::path::Path,
+    std::fs::OpenOptions,
+    std::env,
+    std::backtrace::Backtrace,
+    std::io::Write,
 };
 
 pub type BuiltinFunctionWithContext = BuiltinFunction<InvokeContext<'static>>;
@@ -787,7 +774,7 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
     instruction_data: &[u8],
     mut transaction_accounts: Vec<TransactionAccount>,
     instruction_account_metas: Vec<AccountMeta>,
-    expected_result: Result<(), InstructionError>,
+    mut expected_result: Result<(), InstructionError>,
     builtin_function: BuiltinFunctionWithContext,
     mut pre_adjustments: F,
     mut post_adjustments: G,

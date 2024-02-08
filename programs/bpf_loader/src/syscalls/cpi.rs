@@ -8,7 +8,7 @@ use {
         memory_region::{MemoryRegion, MemoryState},
     },
     solana_sdk::{
-        feature_set::{enable_bpf_loader_set_authority_checked_ix, FeatureSet},
+        feature_set::{enable_bpf_loader_set_authority_checked_ix, FeatureSet, disable_cpi_setting_executable_and_rent_epoch},
         stable_layout::stable_instruction::StableInstruction,
         syscalls::{
             MAX_CPI_ACCOUNT_INFOS, MAX_CPI_INSTRUCTION_ACCOUNTS, MAX_CPI_INSTRUCTION_DATA_LEN,

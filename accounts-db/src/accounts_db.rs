@@ -113,6 +113,7 @@ use {
         time::{Duration, Instant},
     },
     tempfile::TempDir,
+    hex,
 };
 
 const PAGE_SIZE: u64 = 4 * 1024;
@@ -903,13 +904,13 @@ impl<'a> LoadedAccount<'a> {
         }
     }
 
-    pub fn compute_hash(&self, pubkey: &Pubkey) -> AccountHash {
+    pub fn compute_hash(&self, slot: Slot, pubkey: &Pubkey) -> AccountHash {
         match self {
             LoadedAccount::Stored(stored_account_meta) => {
-                AccountsDb::hash_account(stored_account_meta, stored_account_meta.pubkey())
+                AccountsDb::hash_account(slot, stored_account_meta, stored_account_meta.pubkey())
             }
             LoadedAccount::Cached(cached_account) => {
-                AccountsDb::hash_account(&cached_account.account, pubkey)
+                AccountsDb::hash_account(slot, &cached_account.account, pubkey)
             }
         }
     }
@@ -2333,7 +2334,7 @@ impl<'a> AppendVecScan for ScanState<'a> {
 
         let hash_is_missing = loaded_hash == AccountHash(Hash::default());
         if self.config.check_hash || hash_is_missing {
-            let computed_hash = loaded_account.compute_hash(pubkey);
+            let computed_hash = loaded_account.compute_hash(self.current_slot, pubkey);
             if hash_is_missing {
                 loaded_hash = computed_hash;
             } else if self.config.check_hash && computed_hash != loaded_hash {
@@ -6089,8 +6090,9 @@ impl AccountsDb {
         }
     }
 
-    pub fn hash_account<T: ReadableAccount>(account: &T, pubkey: &Pubkey) -> AccountHash {
+    pub fn hash_account<T: ReadableAccount>(slot: Slot, account: &T, pubkey: &Pubkey) -> AccountHash {
         Self::hash_account_data(
+            slot,
             account.lamports(),
             account.owner(),
             account.executable(),
@@ -6101,6 +6103,7 @@ impl AccountsDb {
     }
 
     fn hash_account_data(
+        slot: Slot,
         lamports: u64,
         owner: &Pubkey,
         executable: bool,
@@ -6150,10 +6153,10 @@ impl AccountsDb {
         let ret = Hash::new_from_array(hasher.finalize().into());
 
         info!(
-            "hash_account_data_compare: pubkey: ({}) slot: ({}) include_slot: ({})  lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) includedata: ({})",
-             pubkey, slot, slot_included, lamports, owner, executable as u64, rent_epoch, data.len(), ret, hex::encode(data));
+            "hash_account_data_compare: pubkey: ({}) slot: ({})  lamports: ({}) owner: ({}) executable: ({}) rent_epoch: ({}) data_len: ({}) hash: ({}) includedata: ({})",
+             pubkey, slot, lamports, owner, executable as u64, rent_epoch, data.len(), ret, hex::encode(data));
 
-        ret
+        AccountHash(ret)
     }
 
     fn bulk_assign_write_version(&self, count: usize) -> StoredMetaWriteVersion {
@@ -6734,6 +6737,7 @@ impl AccountsDb {
                             for index in 0..accounts.len() {
                                 let (pubkey, account) = (accounts.pubkey(index), accounts.account(index));
                                 let hash = Self::hash_account(
+                                    slot,
                                     account,
                                     pubkey,
                                 );
@@ -6890,7 +6894,7 @@ impl AccountsDb {
                                             let hash_is_missing = loaded_hash == AccountHash(Hash::default());
                                             if config.check_hash || hash_is_missing {
                                                 let computed_hash =
-                                                    loaded_account.compute_hash(pubkey);
+                                                    loaded_account.compute_hash(*slot, pubkey);
                                                 if hash_is_missing {
                                                     loaded_hash = computed_hash;
                                                 }
@@ -10293,7 +10297,7 @@ pub mod tests {
                 1,
                 AccountSharedData::default().owner(),
             ));
-            let hash = AccountsDb::hash_account(&raw_accounts[i], &raw_expected[i].pubkey);
+            let hash = AccountsDb::hash_account(slot, &raw_accounts[i], &raw_expected[i].pubkey);
             assert_eq!(hash, expected_hashes[i]);
             raw_expected[i].hash = hash;
         }
@@ -12489,12 +12493,12 @@ pub mod tests {
             AccountHash(Hash::from_str("4xuaE8UfH8EYsPyDZvJXUScoZSyxUJf2BpzVMLTFh497").unwrap());
 
         assert_eq!(
-            AccountsDb::hash_account(&stored_account, stored_account.pubkey(),),
+            AccountsDb::hash_account(slot, &stored_account, stored_account.pubkey(),),
             expected_account_hash,
             "StoredAccountMeta's data layout might be changed; update hashing if needed."
         );
         assert_eq!(
-            AccountsDb::hash_account(&account, stored_account.pubkey(),),
+            AccountsDb::hash_account(slot, &account, stored_account.pubkey(),),
             expected_account_hash,
             "Account-based hashing must be consistent with StoredAccountMeta-based one."
         );
@@ -18104,7 +18108,7 @@ pub mod tests {
         // Ensure the zero-lamport accounts are NOT included in the full accounts hash.
         let full_account_hashes = [(2, 0), (3, 0), (4, 1)].into_iter().map(|(index, _slot)| {
             let (pubkey, account) = &accounts[index];
-            AccountsDb::hash_account(account, pubkey).0
+            AccountsDb::hash_account(slot, account, pubkey).0
         });
         let expected_accounts_hash = AccountsHash(compute_merkle_root(full_account_hashes));
         assert_eq!(full_accounts_hash.0, expected_accounts_hash);
@@ -18185,7 +18189,7 @@ pub mod tests {
                         let hash = blake3::hash(bytemuck::bytes_of(pubkey));
                         Hash::new_from_array(hash.into())
                     } else {
-                        AccountsDb::hash_account(account, pubkey).0
+                        AccountsDb::hash_account(slot, account, pubkey).0
                     }
                 });
         let expected_accounts_hash =

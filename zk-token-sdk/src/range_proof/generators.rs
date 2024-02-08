@@ -10,9 +10,6 @@ use {
 #[cfg(not(target_os = "solana"))]
 const MAX_GENERATOR_LENGTH: usize = u32::MAX as usize;
 
-#[cfg(not(target_os = "solana"))]
-const MAX_GENERATOR_LENGTH: usize = u32::MAX as usize;
-
 /// Generators for Pedersen vector commitments that are used for inner-product proofs.
 struct GeneratorsChain {
     reader: Sha3XofReader,

@@ -132,8 +132,8 @@ impl FeeStructure {
             * congestion_multiplier)
             .round() as u64;
 
-        info!("calculate_fee_compare:  fee({}) lamports_per_signature({}) remove_congestion_multiplier({}) include_loaded_account_data_size_in_fee({}) prioritization_fee({}) signature_fee({}) write_lock_fee({}) compute_fee({}) congestion_multiplier({})",
-                ret, lamports_per_signature, remove_congestion_multiplier as u64, include_loaded_account_data_size_in_fee as u64,
+        info!("calculate_fee_compare:  fee({}) lamports_per_signature({}) include_loaded_account_data_size_in_fee({}) prioritization_fee({}) signature_fee({}) write_lock_fee({}) compute_fee({}) congestion_multiplier({})",
+                ret, lamports_per_signature, include_loaded_account_data_size_in_fee as u64,
               budget_limits.prioritization_fee, signature_fee,   write_lock_fee,   compute_fee,   congestion_multiplier);
 
         ret

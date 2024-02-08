@@ -24,6 +24,7 @@ fnv = { workspace = true }
 im = { workspace = true, features = ["rayon", "serde"] }
 index_list = { workspace = true }
 itertools = { workspace = true }
+hex = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 lz4 = { workspace = true }
