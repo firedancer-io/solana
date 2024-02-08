@@ -1,4 +1,3 @@
-pub use target_arch::*;
 use {super::pod, crate::curve25519::ristretto::PodRistrettoPoint};
 
 impl From<(pod::PedersenCommitment, pod::DecryptHandle)> for pod::ElGamalCiphertext {
@@ -50,7 +49,7 @@ impl From<PodRistrettoPoint> for pod::DecryptHandle {
 mod target_arch {
     use {
         super::pod,
-        crate::{curve25519::scalar::PodScalar, errors::ProofError},
+        crate::{curve25519::scalar::PodScalar, encryption::elgamal::ElGamalError},
         curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar},
         std::convert::TryFrom,
     };
@@ -62,10 +61,10 @@ mod target_arch {
     }
 
     impl TryFrom<PodScalar> for Scalar {
-        type Error = ProofError;
+        type Error = ElGamalError;
 
         fn try_from(pod: PodScalar) -> Result<Self, Self::Error> {
-            Scalar::from_canonical_bytes(pod.0).ok_or(ProofError::CiphertextDeserialization)
+            Scalar::from_canonical_bytes(pod.0).ok_or(ElGamalError::CiphertextDeserialization)
         }
     }
 
@@ -102,7 +101,8 @@ mod tests {
         let mut transcript_create = Transcript::new(b"Test");
         let mut transcript_verify = Transcript::new(b"Test");
 
-        let proof = RangeProof::new(vec![55], vec![64], vec![&open], &mut transcript_create);
+        let proof =
+            RangeProof::new(vec![55], vec![64], vec![&open], &mut transcript_create).unwrap();
 
         let proof_serialized: pod::RangeProofU64 = proof.unwrap().try_into().unwrap();
         let proof_deserialized: RangeProof = proof_serialized.try_into().unwrap();

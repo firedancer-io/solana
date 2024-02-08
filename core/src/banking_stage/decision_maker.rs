@@ -28,6 +28,7 @@ impl BufferedPacketsDecision {
     }
 }
 
+#[derive(Clone)]
 pub struct DecisionMaker {
     my_pubkey: Pubkey,
     poh_recorder: Arc<RwLock<PohRecorder>>,
@@ -147,7 +148,7 @@ mod tests {
     #[test]
     fn test_make_consume_or_forward_decision() {
         let genesis_config = create_genesis_config(2).genesis_config;
-        let bank = Arc::new(Bank::new_no_wallclock_throttle_for_tests(&genesis_config));
+        let bank = Bank::new_no_wallclock_throttle_for_tests(&genesis_config).0;
         let ledger_path = temp_dir();
         let blockstore = Arc::new(Blockstore::open(ledger_path.as_path()).unwrap());
         let (exit, poh_recorder, poh_service, _entry_receiver) =
@@ -164,7 +165,10 @@ mod tests {
 
         // Currently Leader - Consume
         {
-            poh_recorder.write().unwrap().set_bank(bank.clone(), false);
+            poh_recorder
+                .write()
+                .unwrap()
+                .set_bank_for_test(bank.clone());
             let decision = decision_maker.make_consume_or_forward_decision();
             assert_matches!(decision, BufferedPacketsDecision::Consume(_));
         }

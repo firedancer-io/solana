@@ -879,6 +879,15 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 .help("Bigtable application profile id to use in requests")
         )
         .arg(
+            Arg::with_name("rpc_bigtable_max_message_size")
+                .long("rpc-bigtable-max-message-size")
+                .value_name("BYTES")
+                .validator(is_parsable::<usize>)
+                .takes_value(true)
+                .default_value(&default_args.rpc_bigtable_max_message_size)
+                .help("Max encoding and decoding message size used in Bigtable Grpc client"),
+        )
+        .arg(
             Arg::with_name("rpc_pubsub_worker_threads")
                 .long("rpc-pubsub-worker-threads")
                 .takes_value(true)
@@ -1195,6 +1204,12 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 .hidden(hidden_unless_forced())
         )
         .arg(
+            Arg::with_name("accounts_db_test_skip_rewrites")
+                .long("accounts-db-test-skip-rewrites")
+                .help("Debug option to skip rewrites for rent-exempt accounts but still add them in bank delta hash calculation")
+                .hidden(hidden_unless_forced())
+        )
+        .arg(
             Arg::with_name("no_skip_initial_accounts_db_clean")
                 .long("no-skip-initial-accounts-db-clean")
                 .help("Do not skip the initial cleaning of accounts when verifying snapshot bank")
@@ -1273,23 +1288,6 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                        May be specified multiple times. \
                        [default: [ledger]/accounts_index]"),
         )
-        .arg(Arg::with_name("accounts_filler_count")
-            .long("accounts-filler-count")
-            .value_name("COUNT")
-            .validator(is_parsable::<usize>)
-            .takes_value(true)
-            .default_value(&default_args.accounts_filler_count)
-            .help("How many accounts to add to stress the system. Accounts are ignored in operations related to correctness.")
-            .hidden(hidden_unless_forced()))
-        .arg(Arg::with_name("accounts_filler_size")
-            .long("accounts-filler-size")
-            .value_name("BYTES")
-            .validator(is_parsable::<usize>)
-            .takes_value(true)
-            .default_value(&default_args.accounts_filler_size)
-            .requires("accounts_filler_count")
-            .help("Size per filler account in bytes.")
-            .hidden(hidden_unless_forced()))
         .arg(
             Arg::with_name("accounts_db_test_hash_calculation")
                 .long("accounts-db-test-hash-calculation")
@@ -1377,11 +1375,39 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
         .arg(
             Arg::with_name("block_production_method")
                 .long("block-production-method")
-                .hidden(hidden_unless_forced())
                 .value_name("METHOD")
                 .takes_value(true)
                 .possible_values(BlockProductionMethod::cli_names())
                 .help(BlockProductionMethod::cli_message())
+        )
+        .arg(
+            Arg::with_name("wen_restart")
+                .long("wen-restart")
+                .hidden(hidden_unless_forced())
+                .value_name("DIR")
+                .takes_value(true)
+                .required(false)
+                .conflicts_with("wait_for_supermajority")
+                .help(
+                    "When specified, the validator will enter Wen Restart mode which
+                    pauses normal activity. Validators in this mode will gossip their last
+                    vote to reach consensus on a safe restart slot and repair all blocks
+                    on the selected fork. The safe slot will be a descendant of the latest
+                    optimistically confirmed slot to ensure we do not roll back any
+                    optimistically confirmed slots.
+
+                    The progress in this mode will be saved in the file location provided.
+                    If consensus is reached, the validator will automatically exit and then
+                    execute wait_for_supermajority logic so the cluster will resume execution.
+                    The progress file will be kept around for future debugging.
+
+                    After the cluster resumes normal operation, the validator arguments can
+                    be adjusted to remove --wen_restart and update expected_shred_version to
+                    the new shred_version agreed on in the consensus.
+
+                    If wen_restart fails, refer to the progress file (in proto3 format) for
+                    further debugging.
+                ")
         )
         .args(&get_deprecated_arguments())
         .after_help("The default subcommand is run")
@@ -1469,6 +1495,34 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                         .value_name("MODE")
                         .possible_values(&["json", "json-compact"])
                         .help("Output display mode")
+                )
+        )
+        .subcommand(SubCommand::with_name("repair-shred-from-peer")
+                .about("Request a repair from the specified validator")
+                .arg(
+                    Arg::with_name("pubkey")
+                        .long("pubkey")
+                        .value_name("PUBKEY")
+                        .required(false)
+                        .takes_value(true)
+                        .validator(is_pubkey)
+                        .help("Identity pubkey of the validator to repair from")
+                )
+                .arg(
+                    Arg::with_name("slot")
+                        .long("slot")
+                        .value_name("SLOT")
+                        .takes_value(true)
+                        .validator(is_parsable::<u64>)
+                        .help("Slot to repair")
+                )
+                .arg(
+                    Arg::with_name("shred")
+                        .long("shred")
+                        .value_name("SHRED")
+                        .takes_value(true)
+                        .validator(is_parsable::<u64>)
+                        .help("Shred to repair")
                 )
         )
         .subcommand(
@@ -1908,6 +1962,7 @@ pub struct DefaultArgs {
     pub rpc_bigtable_timeout: String,
     pub rpc_bigtable_instance_name: String,
     pub rpc_bigtable_app_profile_id: String,
+    pub rpc_bigtable_max_message_size: String,
     pub rpc_max_request_body_size: String,
     pub rpc_pubsub_worker_threads: String,
 
@@ -1922,8 +1977,6 @@ pub struct DefaultArgs {
 
     pub contact_debug_interval: String,
 
-    pub accounts_filler_count: String,
-    pub accounts_filler_size: String,
     pub accountsdb_repl_threads: String,
 
     pub snapshot_version: SnapshotVersion,
@@ -1946,6 +1999,8 @@ pub struct DefaultArgs {
     pub wait_for_restart_window_max_delinquent_stake: String,
 
     pub banking_trace_dir_byte_limit: String,
+
+    pub wen_restart_path: String,
 }
 
 impl DefaultArgs {
@@ -1993,10 +2048,10 @@ impl DefaultArgs {
             rpc_bigtable_instance_name: solana_storage_bigtable::DEFAULT_INSTANCE_NAME.to_string(),
             rpc_bigtable_app_profile_id: solana_storage_bigtable::DEFAULT_APP_PROFILE_ID
                 .to_string(),
+            rpc_bigtable_max_message_size: solana_storage_bigtable::DEFAULT_MAX_MESSAGE_SIZE
+                .to_string(),
             rpc_pubsub_worker_threads: "4".to_string(),
             accountsdb_repl_threads: num_cpus::get().to_string(),
-            accounts_filler_count: "0".to_string(),
-            accounts_filler_size: "0".to_string(),
             maximum_full_snapshot_archives_to_retain: DEFAULT_MAX_FULL_SNAPSHOT_ARCHIVES_TO_RETAIN
                 .to_string(),
             maximum_incremental_snapshot_archives_to_retain:
@@ -2024,6 +2079,7 @@ impl DefaultArgs {
             wait_for_restart_window_min_idle_time: "10".to_string(),
             wait_for_restart_window_max_delinquent_stake: "5".to_string(),
             banking_trace_dir_byte_limit: BANKING_TRACE_DIR_DEFAULT_BYTE_LIMIT.to_string(),
+            wen_restart_path: "wen_restart_progress.proto".to_string(),
         }
     }
 }

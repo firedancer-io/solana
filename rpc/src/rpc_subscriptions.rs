@@ -383,7 +383,7 @@ fn filter_account_result(
         if is_known_spl_token_id(account.owner())
             && params.encoding == UiAccountEncoding::JsonParsed
         {
-            get_parsed_token_account(&bank, &params.pubkey, account)
+            get_parsed_token_account(&bank, &params.pubkey, account, None)
         } else {
             UiAccount::encode(&params.pubkey, &account, params.encoding, None, None)
         }
@@ -1259,6 +1259,7 @@ pub(crate) mod tests {
             rpc_pubsub_service,
         },
         serial_test::serial,
+        solana_ledger::get_tmp_ledger_path_auto_delete,
         solana_rpc_client_api::config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
             RpcProgramAccountsConfig, RpcSignatureSubscribeConfig, RpcTransactionLogsConfig,
@@ -1473,8 +1474,8 @@ pub(crate) mod tests {
         let bank_forks = BankForks::new_rw_arc(bank);
         let optimistically_confirmed_bank =
             OptimisticallyConfirmedBank::locked_from_bank_forks_root(&bank_forks);
-        let ledger_path = get_tmp_ledger_path!();
-        let blockstore = Blockstore::open(&ledger_path).unwrap();
+        let ledger_path = get_tmp_ledger_path_auto_delete!();
+        let blockstore = Blockstore::open(ledger_path.path()).unwrap();
         let blockstore = Arc::new(blockstore);
         let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
         let max_complete_rewards_slot = Arc::new(AtomicU64::default());
@@ -1593,8 +1594,8 @@ pub(crate) mod tests {
         let bank_forks = BankForks::new_rw_arc(bank);
         let optimistically_confirmed_bank =
             OptimisticallyConfirmedBank::locked_from_bank_forks_root(&bank_forks);
-        let ledger_path = get_tmp_ledger_path!();
-        let blockstore = Blockstore::open(&ledger_path).unwrap();
+        let ledger_path = get_tmp_ledger_path_auto_delete!();
+        let blockstore = Blockstore::open(ledger_path.path()).unwrap();
         let blockstore = Arc::new(blockstore);
         let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
         let max_complete_rewards_slot = Arc::new(AtomicU64::default());
@@ -1711,8 +1712,8 @@ pub(crate) mod tests {
         let bank_forks = BankForks::new_rw_arc(bank);
         let optimistically_confirmed_bank =
             OptimisticallyConfirmedBank::locked_from_bank_forks_root(&bank_forks);
-        let ledger_path = get_tmp_ledger_path!();
-        let blockstore = Blockstore::open(&ledger_path).unwrap();
+        let ledger_path = get_tmp_ledger_path_auto_delete!();
+        let blockstore = Blockstore::open(ledger_path.path()).unwrap();
         let blockstore = Arc::new(blockstore);
         let max_complete_transaction_status_slot = Arc::new(AtomicU64::default());
         let max_complete_rewards_slot = Arc::new(AtomicU64::default());

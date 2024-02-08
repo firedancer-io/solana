@@ -1,6 +1,9 @@
 use {
     crate::{
-        cli::{CliCommand, CliCommandInfo, CliConfig, CliError, ProcessResult},
+        cli::{
+            log_instruction_custom_error, CliCommand, CliCommandInfo, CliConfig, CliError,
+            ProcessResult,
+        },
         spend_utils::{resolve_spend_tx_and_check_account_balance, SpendAmount},
     },
     clap::{value_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand},
@@ -23,6 +26,7 @@ use {
         message::Message,
         pubkey::Pubkey,
         stake_history::Epoch,
+        system_instruction::SystemError,
         transaction::Transaction,
     },
     std::{cmp::Ordering, collections::HashMap, fmt, rc::Rc, str::FromStr},
@@ -236,7 +240,9 @@ impl fmt::Display for CliClusterSoftwareVersions {
             f,
             "{}",
             style(format!(
-                "{software_version_title:<max_software_version_len$}  {stake_percent_title:>max_stake_percent_len$}  {rpc_percent_title:>max_rpc_percent_len$}",
+                "{software_version_title:<max_software_version_len$}  \
+                 {stake_percent_title:>max_stake_percent_len$}  \
+                 {rpc_percent_title:>max_rpc_percent_len$}",
             ))
             .bold(),
         )?;
@@ -314,8 +320,12 @@ impl fmt::Display for CliClusterFeatureSets {
             writeln!(
                 f,
                 "\n{}",
-                style("To activate features the tool and cluster feature sets must match, select a tool version that matches the cluster")
-                    .bold())?;
+                style(
+                    "To activate features the tool and cluster feature sets must match, select a \
+                     tool version that matches the cluster"
+                )
+                .bold()
+            )?;
         } else {
             if !self.stake_allowed {
                 write!(
@@ -345,7 +355,10 @@ impl fmt::Display for CliClusterFeatureSets {
             f,
             "{}",
             style(format!(
-                "{software_versions_title:<max_software_versions_len$}  {feature_set_title:<max_feature_set_len$}  {stake_percent_title:>max_stake_percent_len$}  {rpc_percent_title:>max_rpc_percent_len$}",
+                "{software_versions_title:<max_software_versions_len$}  \
+                 {feature_set_title:<max_feature_set_len$}  \
+                 {stake_percent_title:>max_stake_percent_len$}  \
+                 {rpc_percent_title:>max_rpc_percent_len$}",
             ))
             .bold(),
         )?;
@@ -398,8 +411,8 @@ fn check_rpc_genesis_hash(
         if rpc_genesis_hash != genesis_hash {
             return Err(format!(
                 "The genesis hash for the specified cluster {cluster_type:?} does not match the \
-                genesis hash reported by the specified RPC. Cluster genesis hash: {genesis_hash}, \
-                RPC reported genesis hash: {rpc_genesis_hash}"
+                 genesis hash reported by the specified RPC. Cluster genesis hash: \
+                 {genesis_hash}, RPC reported genesis hash: {rpc_genesis_hash}"
             )
             .into());
         }
@@ -923,11 +936,17 @@ fn process_activate(
 
     if !feature_activation_allowed(rpc_client, false)?.0 {
         match force {
-        ForceActivation::Almost =>
-            return Err("Add force argument once more to override the sanity check to force feature activation ".into()),
-        ForceActivation::Yes => println!("FEATURE ACTIVATION FORCED"),
-        ForceActivation::No =>
-            return Err("Feature activation is not allowed at this time".into()),
+            ForceActivation::Almost => {
+                return Err(
+                    "Add force argument once more to override the sanity check to force feature \
+                     activation "
+                        .into(),
+                )
+            }
+            ForceActivation::Yes => println!("FEATURE ACTIVATION FORCED"),
+            ForceActivation::No => {
+                return Err("Feature activation is not allowed at this time".into())
+            }
         }
     }
 
@@ -956,6 +975,6 @@ fn process_activate(
         FEATURE_NAMES.get(&feature_id).unwrap(),
         feature_id
     );
-    rpc_client.send_and_confirm_transaction_with_spinner(&transaction)?;
-    Ok("".to_string())
+    let result = rpc_client.send_and_confirm_transaction_with_spinner(&transaction);
+    log_instruction_custom_error::<SystemError>(result, config)
 }

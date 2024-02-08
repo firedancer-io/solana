@@ -2,7 +2,7 @@
 //!
 //! For more information, see:
 //!
-//! <https://docs.solana.com/implemented-proposals/persistent-account-storage>
+//! <https://docs.solanalabs.com/implemented-proposals/persistent-account-storage>
 
 use {
     crate::{
@@ -10,7 +10,8 @@ use {
             AccountMeta, StorableAccountsWithHashesAndWriteVersions, StoredAccountInfo,
             StoredAccountMeta, StoredMeta, StoredMetaWriteVersion,
         },
-        accounts_file::{AccountsFileError, Result, ALIGN_BOUNDARY_OFFSET},
+        accounts_file::{AccountsFileError, MatchAccountOwnerError, Result, ALIGN_BOUNDARY_OFFSET},
+        accounts_hash::AccountHash,
         storable_accounts::StorableAccounts,
         u64_align,
     },
@@ -19,7 +20,6 @@ use {
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
         clock::Slot,
-        hash::Hash,
         pubkey::Pubkey,
         stake_history::Epoch,
     },
@@ -96,14 +96,6 @@ impl<'append_vec> Iterator for AppendVecAccountsIter<'append_vec> {
     }
 }
 
-#[derive(Error, Debug, PartialEq, Eq)]
-pub enum MatchAccountOwnerError {
-    #[error("The account owner does not match with the provided list")]
-    NoMatch,
-    #[error("Unable to load the account")]
-    UnableToLoad,
-}
-
 /// References to account data stored elsewhere. Getting an `Account` requires cloning
 /// (see `StoredAccountMeta::clone_account()`).
 #[derive(PartialEq, Eq, Debug)]
@@ -114,7 +106,7 @@ pub struct AppendVecStoredAccountMeta<'append_vec> {
     pub(crate) data: &'append_vec [u8],
     pub(crate) offset: usize,
     pub(crate) stored_size: usize,
-    pub(crate) hash: &'append_vec Hash,
+    pub(crate) hash: &'append_vec AccountHash,
 }
 
 impl<'append_vec> AppendVecStoredAccountMeta<'append_vec> {
@@ -122,7 +114,7 @@ impl<'append_vec> AppendVecStoredAccountMeta<'append_vec> {
         &self.meta.pubkey
     }
 
-    pub fn hash(&self) -> &'append_vec Hash {
+    pub fn hash(&self) -> &'append_vec AccountHash {
         self.hash
     }
 
@@ -327,7 +319,8 @@ impl AppendVec {
 
     /// how many more bytes can be stored in this append vec
     pub fn remaining_bytes(&self) -> u64 {
-        (self.capacity()).saturating_sub(self.len() as u64)
+        self.capacity()
+            .saturating_sub(u64_align!(self.len()) as u64)
     }
 
     pub fn len(&self) -> usize {
@@ -487,7 +480,7 @@ impl AppendVec {
     pub fn get_account(&self, offset: usize) -> Option<(StoredAccountMeta, usize)> {
         let (meta, next): (&StoredMeta, _) = self.get_type(offset)?;
         let (account_meta, next): (&AccountMeta, _) = self.get_type(next)?;
-        let (hash, next): (&Hash, _) = self.get_type(next)?;
+        let (hash, next): (&AccountHash, _) = self.get_type(next)?;
         let (data, next) = self.get_slice(next, meta.data_len as usize)?;
         let stored_size = next - offset;
         Some((
@@ -575,7 +568,7 @@ impl AppendVec {
         'b,
         T: ReadableAccount + Sync,
         U: StorableAccounts<'a, T>,
-        V: Borrow<Hash>,
+        V: Borrow<AccountHash>,
     >(
         &self,
         accounts: &StorableAccountsWithHashesAndWriteVersions<'a, 'b, T, U, V>,
@@ -611,11 +604,11 @@ impl AppendVec {
                 .map(|account| account.data())
                 .unwrap_or_default()
                 .as_ptr();
-            let hash_ptr = hash.as_ref().as_ptr();
+            let hash_ptr = bytemuck::bytes_of(hash).as_ptr();
             let ptrs = [
                 (meta_ptr as *const u8, mem::size_of::<StoredMeta>()),
                 (account_meta_ptr as *const u8, mem::size_of::<AccountMeta>()),
-                (hash_ptr, mem::size_of::<Hash>()),
+                (hash_ptr, mem::size_of::<AccountHash>()),
                 (data_ptr, data_len),
             ];
             if let Some(res) = self.append_ptrs_locked(&mut offset, &ptrs) {
@@ -648,12 +641,12 @@ impl AppendVec {
 pub mod tests {
     use {
         super::{test_utils::*, *},
-        crate::accounts_db::INCLUDE_SLOT_IN_HASH_TESTS,
         assert_matches::assert_matches,
         memoffset::offset_of,
         rand::{thread_rng, Rng},
         solana_sdk::{
             account::{accounts_equal, Account, AccountSharedData, WritableAccount},
+            hash::Hash,
             timing::duration_as_ms,
         },
         std::{mem::ManuallyDrop, time::Instant},
@@ -669,7 +662,7 @@ pub mod tests {
             let accounts = [(&data.0.pubkey, &data.1)];
             let slice = &accounts[..];
             let account_data = (slot_ignored, slice);
-            let hash = Hash::default();
+            let hash = AccountHash(Hash::default());
             let storable_accounts =
                 StorableAccountsWithHashesAndWriteVersions::new_with_hashes_and_write_versions(
                     &account_data,
@@ -686,6 +679,8 @@ pub mod tests {
         pub(crate) fn ref_executable_byte(&self) -> &u8 {
             match self {
                 Self::AppendVec(av) => av.ref_executable_byte(),
+                // Tests currently only cover AppendVec.
+                Self::Hot(_) => unreachable!(),
             }
         }
     }
@@ -735,32 +730,31 @@ pub mod tests {
     #[should_panic(expected = "accounts.has_hash_and_write_version()")]
     fn test_storable_accounts_with_hashes_and_write_versions_new() {
         let account = AccountSharedData::default();
-        // for (Slot, &'a [(&'a Pubkey, &'a T)], IncludeSlotInHash)
+        // for (Slot, &'a [(&'a Pubkey, &'a T)])
         let slot = 0 as Slot;
         let pubkey = Pubkey::default();
-        StorableAccountsWithHashesAndWriteVersions::<'_, '_, _, _, &Hash>::new(&(
+        StorableAccountsWithHashesAndWriteVersions::<'_, '_, _, _, &AccountHash>::new(&(
             slot,
             &[(&pubkey, &account)][..],
-            INCLUDE_SLOT_IN_HASH_TESTS,
         ));
     }
 
     fn test_mismatch(correct_hashes: bool, correct_write_versions: bool) {
         let account = AccountSharedData::default();
-        // for (Slot, &'a [(&'a Pubkey, &'a T)], IncludeSlotInHash)
+        // for (Slot, &'a [(&'a Pubkey, &'a T)])
         let slot = 0 as Slot;
         let pubkey = Pubkey::default();
         // mismatch between lens of accounts, hashes, write_versions
         let mut hashes = Vec::default();
         if correct_hashes {
-            hashes.push(Hash::default());
+            hashes.push(AccountHash(Hash::default()));
         }
         let mut write_versions = Vec::default();
         if correct_write_versions {
             write_versions.push(0);
         }
         StorableAccountsWithHashesAndWriteVersions::new_with_hashes_and_write_versions(
-            &(slot, &[(&pubkey, &account)][..], INCLUDE_SLOT_IN_HASH_TESTS),
+            &(slot, &[(&pubkey, &account)][..]),
             hashes,
             write_versions,
         );
@@ -792,15 +786,15 @@ pub mod tests {
 
     #[test]
     fn test_storable_accounts_with_hashes_and_write_versions_empty() {
-        // for (Slot, &'a [(&'a Pubkey, &'a T)], IncludeSlotInHash)
+        // for (Slot, &'a [(&'a Pubkey, &'a T)])
         let account = AccountSharedData::default();
         let slot = 0 as Slot;
         let pubkeys = [Pubkey::default()];
-        let hashes = Vec::<Hash>::default();
+        let hashes = Vec::<AccountHash>::default();
         let write_versions = Vec::default();
         let mut accounts = vec![(&pubkeys[0], &account)];
         accounts.clear();
-        let accounts2 = (slot, &accounts[..], INCLUDE_SLOT_IN_HASH_TESTS);
+        let accounts2 = (slot, &accounts[..]);
         let storable =
             StorableAccountsWithHashesAndWriteVersions::new_with_hashes_and_write_versions(
                 &accounts2,
@@ -813,14 +807,17 @@ pub mod tests {
 
     #[test]
     fn test_storable_accounts_with_hashes_and_write_versions_hash_and_write_version() {
-        // for (Slot, &'a [(&'a Pubkey, &'a T)], IncludeSlotInHash)
+        // for (Slot, &'a [(&'a Pubkey, &'a T)])
         let account = AccountSharedData::default();
         let slot = 0 as Slot;
         let pubkeys = [Pubkey::from([5; 32]), Pubkey::from([6; 32])];
-        let hashes = vec![Hash::new(&[3; 32]), Hash::new(&[4; 32])];
+        let hashes = vec![
+            AccountHash(Hash::new(&[3; 32])),
+            AccountHash(Hash::new(&[4; 32])),
+        ];
         let write_versions = vec![42, 43];
         let accounts = [(&pubkeys[0], &account), (&pubkeys[1], &account)];
-        let accounts2 = (slot, &accounts[..], INCLUDE_SLOT_IN_HASH_TESTS);
+        let accounts2 = (slot, &accounts[..]);
         let storable =
             StorableAccountsWithHashesAndWriteVersions::new_with_hashes_and_write_versions(
                 &accounts2,
@@ -845,13 +842,13 @@ pub mod tests {
             ..Account::default()
         }
         .to_account_shared_data();
-        // for (Slot, &'a [(&'a Pubkey, &'a T)], IncludeSlotInHash)
+        // for (Slot, &'a [(&'a Pubkey, &'a T)])
         let slot = 0 as Slot;
         let pubkey = Pubkey::default();
-        let hashes = vec![Hash::default()];
+        let hashes = vec![AccountHash(Hash::default())];
         let write_versions = vec![0];
         let accounts = [(&pubkey, &account)];
-        let accounts2 = (slot, &accounts[..], INCLUDE_SLOT_IN_HASH_TESTS);
+        let accounts2 = (slot, &accounts[..]);
         let storable =
             StorableAccountsWithHashesAndWriteVersions::new_with_hashes_and_write_versions(
                 &accounts2,
@@ -868,9 +865,9 @@ pub mod tests {
             ..Account::default()
         }
         .to_account_shared_data();
-        // for (Slot, &'a [(&'a Pubkey, &'a T)], IncludeSlotInHash)
+        // for (Slot, &'a [(&'a Pubkey, &'a T)])
         let accounts = [(&pubkey, &account)];
-        let accounts2 = (slot, &accounts[..], INCLUDE_SLOT_IN_HASH_TESTS);
+        let accounts2 = (slot, &accounts[..]);
         let storable =
             StorableAccountsWithHashesAndWriteVersions::new_with_hashes_and_write_versions(
                 &accounts2,
@@ -998,10 +995,36 @@ pub mod tests {
         let av = AppendVec::new(&path.path, true, sz);
         assert_eq!(av.capacity(), sz64);
         assert_eq!(av.remaining_bytes(), sz64);
+
+        // append first account, an u64 aligned account (136 bytes)
+        let mut av_len = 0;
         let account = create_test_account(0);
         av.append_account_test(&account).unwrap();
+        av_len += STORE_META_OVERHEAD;
         assert_eq!(av.capacity(), sz64);
         assert_eq!(av.remaining_bytes(), sz64 - (STORE_META_OVERHEAD as u64));
+        assert_eq!(av.len(), av_len);
+
+        // append second account, a *not* u64 aligned account (137 bytes)
+        let account = create_test_account(1);
+        let account_storage_len = STORE_META_OVERHEAD + 1;
+        av_len += account_storage_len;
+        av.append_account_test(&account).unwrap();
+        assert_eq!(av.capacity(), sz64);
+        assert_eq!(av.len(), av_len);
+        let alignment_bytes = u64_align!(av_len) - av_len; // bytes used for alignment (7 bytes)
+        assert_eq!(alignment_bytes, 7);
+        assert_eq!(av.remaining_bytes(), sz64 - u64_align!(av_len) as u64);
+
+        // append third account, a *not* u64 aligned account (137 bytes)
+        let account = create_test_account(1);
+        av.append_account_test(&account).unwrap();
+        let account_storage_len = STORE_META_OVERHEAD + 1;
+        av_len += alignment_bytes; // bytes used for alignment at the end of previous account
+        av_len += account_storage_len;
+        assert_eq!(av.capacity(), sz64);
+        assert_eq!(av.len(), av_len);
+        assert_eq!(av.remaining_bytes(), sz64 - u64_align!(av_len) as u64);
     }
 
     #[test]
@@ -1181,7 +1204,9 @@ pub mod tests {
             av.append_account_test(&create_test_account(10)).unwrap();
 
             let accounts = av.accounts(0);
-            let StoredAccountMeta::AppendVec(account) = accounts.first().unwrap();
+            let StoredAccountMeta::AppendVec(account) = accounts.first().unwrap() else {
+                panic!("StoredAccountMeta can only be AppendVec in this test.");
+            };
             account.set_data_len_unsafe(crafted_data_len);
             assert_eq!(account.data_len(), crafted_data_len);
 
@@ -1209,7 +1234,9 @@ pub mod tests {
             av.append_account_test(&create_test_account(10)).unwrap();
 
             let accounts = av.accounts(0);
-            let StoredAccountMeta::AppendVec(account) = accounts.first().unwrap();
+            let StoredAccountMeta::AppendVec(account) = accounts.first().unwrap() else {
+                panic!("StoredAccountMeta can only be AppendVec in this test.");
+            };
             account.set_data_len_unsafe(too_large_data_len);
             assert_eq!(account.data_len(), too_large_data_len);
 
@@ -1245,14 +1272,18 @@ pub mod tests {
             assert_eq!(*accounts[0].ref_executable_byte(), 0);
             assert_eq!(*accounts[1].ref_executable_byte(), 1);
 
-            let StoredAccountMeta::AppendVec(account) = &accounts[0];
+            let StoredAccountMeta::AppendVec(account) = &accounts[0] else {
+                panic!("StoredAccountMeta can only be AppendVec in this test.");
+            };
             let crafted_executable = u8::max_value() - 1;
 
             account.set_executable_as_byte(crafted_executable);
 
             // reload crafted accounts
             let accounts = av.accounts(0);
-            let StoredAccountMeta::AppendVec(account) = accounts.first().unwrap();
+            let StoredAccountMeta::AppendVec(account) = accounts.first().unwrap() else {
+                panic!("StoredAccountMeta can only be AppendVec in this test.");
+            };
 
             // upper 7-bits are not 0, so sanitization should fail
             assert!(!account.sanitize_executable());

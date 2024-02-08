@@ -3,7 +3,7 @@ use {
         accounts_index_storage::{AccountsIndexStorage, Startup},
         accounts_partition::RentPayingAccountsByPartition,
         ancestors::Ancestors,
-        bucket_map_holder::{Age, BucketMapHolder},
+        bucket_map_holder::{Age, AtomicAge, BucketMapHolder},
         contains::Contains,
         in_mem_accounts_index::{InMemAccountsIndex, InsertNewEntryResults, StartupStats},
         inline_spl_token::{self, GenericTokenAccount},
@@ -20,6 +20,7 @@ use {
         ThreadPool,
     },
     solana_measure::measure::Measure,
+    solana_nohash_hasher::IntSet,
     solana_sdk::{
         account::ReadableAccount,
         clock::{BankId, Slot},
@@ -35,7 +36,7 @@ use {
         },
         path::PathBuf,
         sync::{
-            atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
+            atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
             Arc, Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard,
         },
     },
@@ -237,7 +238,7 @@ pub struct AccountMapEntryMeta {
     /// true if entry in in-mem idx has changes and needs to be written to disk
     pub dirty: AtomicBool,
     /// 'age' at which this entry should be purged from the cache (implements lru)
-    pub age: AtomicU8,
+    pub age: AtomicAge,
 }
 
 impl AccountMapEntryMeta {
@@ -247,7 +248,7 @@ impl AccountMapEntryMeta {
     ) -> Self {
         AccountMapEntryMeta {
             dirty: AtomicBool::new(true),
-            age: AtomicU8::new(storage.future_age_to_flush(is_cached)),
+            age: AtomicAge::new(storage.future_age_to_flush(is_cached)),
         }
     }
     pub fn new_clean<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>>(
@@ -255,7 +256,7 @@ impl AccountMapEntryMeta {
     ) -> Self {
         AccountMapEntryMeta {
             dirty: AtomicBool::new(false),
-            age: AtomicU8::new(storage.future_age_to_flush(false)),
+            age: AtomicAge::new(storage.future_age_to_flush(false)),
         }
     }
 }
@@ -457,7 +458,7 @@ pub struct RootsTracker {
     /// Updated every time we add a new root or clean/shrink an append vec into irrelevancy.
     /// Range is approximately the last N slots where N is # slots per epoch.
     pub alive_roots: RollingBitField,
-    uncleaned_roots: HashSet<Slot>,
+    uncleaned_roots: IntSet<Slot>,
 }
 
 impl Default for RootsTracker {
@@ -473,7 +474,7 @@ impl RootsTracker {
     pub fn new(max_width: u64) -> Self {
         Self {
             alive_roots: RollingBitField::new(max_width),
-            uncleaned_roots: HashSet::new(),
+            uncleaned_roots: IntSet::default(),
         }
     }
 
@@ -1994,7 +1995,7 @@ impl<T: IndexValue, U: DiskIndexValue + From<T> + Into<T>> AccountsIndex<T, U> {
         tracker.alive_roots.get_all()
     }
 
-    pub fn clone_uncleaned_roots(&self) -> HashSet<Slot> {
+    pub fn clone_uncleaned_roots(&self) -> IntSet<Slot> {
         self.roots_tracker.read().unwrap().uncleaned_roots.clone()
     }
 
@@ -2112,7 +2113,7 @@ pub mod tests {
                     let (slot, account_info) = entry.slot_list.read().unwrap()[0];
                     let meta = AccountMapEntryMeta {
                         dirty: AtomicBool::new(entry.dirty()),
-                        age: AtomicU8::new(entry.age()),
+                        age: AtomicAge::new(entry.age()),
                     };
                     PreAllocatedAccountMapEntry::Entry(Arc::new(AccountMapEntryInner::new(
                         vec![(slot, account_info)],

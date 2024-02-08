@@ -93,7 +93,7 @@ test-stable-sbf)
   # latest mainbeta release version.
   solana_program_count=$(grep -c 'solana-program v' cargo.log)
   rm -f cargo.log
-  if ((solana_program_count > 18)); then
+  if ((solana_program_count > 20)); then
       echo "Regression of build redundancy ${solana_program_count}."
       echo "Review dependency features that trigger redundant rebuilds of solana-program."
       exit 1
@@ -107,7 +107,7 @@ test-stable-sbf)
   _ cargo test \
     --manifest-path programs/sbf/Cargo.toml \
     --no-default-features --features=sbf_c,sbf_rust assert_instruction_count \
-    -- --nocapture &> "${sbf_target_path}"/deploy/instuction_counts.txt
+    -- --nocapture &> "${sbf_target_path}"/deploy/instruction_counts.txt
 
   sbf_dump_archive="sbf-dumps.tar.bz2"
   rm -f "$sbf_dump_archive"

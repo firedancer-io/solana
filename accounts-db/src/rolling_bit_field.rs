@@ -2,9 +2,13 @@
 //! Relies on there being a sliding window of key values. The key values continue to increase.
 //! Old key values are removed from the lesser values and do not accumulate.
 
-use {bv::BitVec, solana_sdk::clock::Slot, std::collections::HashSet};
+mod iterators;
+use {
+    bv::BitVec, iterators::RollingBitFieldOnesIter, solana_nohash_hasher::IntSet,
+    solana_sdk::clock::Slot,
+};
 
-#[derive(Debug, Default, AbiExample, Clone)]
+#[derive(Debug, AbiExample, Clone)]
 pub struct RollingBitField {
     max_width: u64,
     min: u64,
@@ -15,7 +19,7 @@ pub struct RollingBitField {
     // They would cause us to exceed max_width if we stored them in our bit field.
     // We only expect these items in conditions where there is some other bug in the system
     //  or in testing when large ranges are created.
-    excess: HashSet<u64>,
+    excess: IntSet<u64>,
 }
 
 impl PartialEq<RollingBitField> for RollingBitField {
@@ -47,7 +51,7 @@ impl RollingBitField {
             count: 0,
             min: 0,
             max_exclusive: 0,
-            excess: HashSet::new(),
+            excess: IntSet::default(),
         }
     }
 
@@ -67,15 +71,12 @@ impl RollingBitField {
         } else if self.excess.is_empty() {
             Some(self.min)
         } else {
-            let mut min = if self.all_items_in_excess() {
-                u64::MAX
+            let excess_min = self.excess.iter().min().copied();
+            if self.all_items_in_excess() {
+                excess_min
             } else {
-                self.min
-            };
-            for item in &self.excess {
-                min = std::cmp::min(min, *item);
+                Some(std::cmp::min(self.min, excess_min.unwrap_or(u64::MAX)))
             }
-            Some(min)
         }
     }
 
@@ -286,11 +287,19 @@ impl RollingBitField {
         }
         all
     }
+
+    /// Returns an iterator over the rolling bit field
+    ///
+    /// The iterator yields all the 'set' bits.
+    /// Note, the iteration order of the bits in 'excess' is not deterministic.
+    pub fn iter_ones(&self) -> RollingBitFieldOnesIter<'_> {
+        RollingBitFieldOnesIter::new(self)
+    }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use {super::*, log::*, solana_measure::measure::Measure};
+    use {super::*, log::*, solana_measure::measure::Measure, std::collections::HashSet};
 
     impl RollingBitField {
         pub fn clear(&mut self) {

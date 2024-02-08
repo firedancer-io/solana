@@ -8,21 +8,18 @@ use {
     log::*,
     rand::{seq::SliceRandom, thread_rng},
     solana_accounts_db::{
-        accounts_db::{
-            AccountShrinkThreshold, AccountsDb, AccountsDbConfig, CreateAncientStorage,
-            FillerAccountsConfig,
-        },
+        accounts_db::{AccountShrinkThreshold, AccountsDb, AccountsDbConfig, CreateAncientStorage},
         accounts_index::{
             AccountIndex, AccountSecondaryIndexes, AccountSecondaryIndexesIncludeExclude,
             AccountsIndexConfig, IndexLimitMb,
         },
         partitioned_rewards::TestPartitionedEpochRewards,
+        utils::{create_all_accounts_run_and_snapshot_dirs, create_and_canonicalize_directories},
     },
     solana_clap_utils::input_parsers::{keypair_of, keypairs_of, pubkey_of, value_of},
     solana_core::{
         banking_trace::DISABLED_BAKING_TRACE_DIR,
         consensus::tower_storage,
-        ledger_cleanup_service::{DEFAULT_MAX_LEDGER_SHREDS, DEFAULT_MIN_MAX_LEDGER_SHREDS},
         system_monitor_service::SystemMonitorService,
         tpu::DEFAULT_TPU_COALESCE,
         validator::{
@@ -32,6 +29,7 @@ use {
     },
     solana_gossip::{cluster_info::Node, legacy_contact_info::LegacyContactInfo as ContactInfo},
     solana_ledger::{
+        blockstore_cleanup_service::{DEFAULT_MAX_LEDGER_SHREDS, DEFAULT_MIN_MAX_LEDGER_SHREDS},
         blockstore_options::{
             BlockstoreCompressionType, BlockstoreRecoveryMode, LedgerColumnOptions,
             ShredStorageType,
@@ -50,10 +48,7 @@ use {
         runtime_config::RuntimeConfig,
         snapshot_bank_utils::DISABLED_SNAPSHOT_ARCHIVE_INTERVAL,
         snapshot_config::{SnapshotConfig, SnapshotUsage},
-        snapshot_utils::{
-            self, create_all_accounts_run_and_snapshot_dirs, create_and_canonicalize_directories,
-            ArchiveFormat, SnapshotVersion,
-        },
+        snapshot_utils::{self, ArchiveFormat, SnapshotVersion},
     },
     solana_sdk::{
         clock::{Slot, DEFAULT_S_PER_SLOT},
@@ -244,7 +239,7 @@ fn wait_for_restart_window(
                     Err("Current epoch is almost complete".to_string())
                 } else {
                     while leader_schedule
-                        .get(0)
+                        .front()
                         .map(|slot| *slot < epoch_info.absolute_slot)
                         .unwrap_or(false)
                     {
@@ -258,7 +253,7 @@ fn wait_for_restart_window(
                         upcoming_idle_windows.pop();
                     }
 
-                    match leader_schedule.get(0) {
+                    match leader_schedule.front() {
                         None => {
                             Ok(()) // Validator has no leader slots
                         }
@@ -796,6 +791,24 @@ pub fn main() {
             });
             return;
         }
+        ("repair-shred-from-peer", Some(subcommand_matches)) => {
+            let pubkey = value_t!(subcommand_matches, "pubkey", Pubkey).ok();
+            let slot = value_t_or_exit!(subcommand_matches, "slot", u64);
+            let shred_index = value_t_or_exit!(subcommand_matches, "shred", u64);
+            let admin_client = admin_rpc_service::connect(&ledger_path);
+            admin_rpc_service::runtime()
+                .block_on(async move {
+                    admin_client
+                        .await?
+                        .repair_shred_from_peer(pubkey, slot, shred_index)
+                        .await
+                })
+                .unwrap_or_else(|err| {
+                    println!("repair shred from peer failed: {err}");
+                    exit(1);
+                });
+            return;
+        }
         ("repair-whitelist", Some(repair_whitelist_subcommand_matches)) => {
             match repair_whitelist_subcommand_matches.subcommand() {
                 ("get", Some(subcommand_matches)) => {
@@ -976,9 +989,12 @@ pub fn main() {
         .map(BlockstoreRecoveryMode::from);
 
     // Canonicalize ledger path to avoid issues with symlink creation
-    let ledger_path = create_and_canonicalize_directories(&[ledger_path])
+    let ledger_path = create_and_canonicalize_directories([&ledger_path])
         .unwrap_or_else(|err| {
-            eprintln!("Unable to access ledger path: {err}");
+            eprintln!(
+                "Unable to access ledger path '{}': {err}",
+                ledger_path.display(),
+            );
             exit(1);
         })
         .pop()
@@ -988,9 +1004,12 @@ pub fn main() {
         .value_of("accounts_hash_cache_path")
         .map(Into::into)
         .unwrap_or_else(|| ledger_path.join(AccountsDb::DEFAULT_ACCOUNTS_HASH_CACHE_DIR));
-    let accounts_hash_cache_path = create_and_canonicalize_directories(&[accounts_hash_cache_path])
+    let accounts_hash_cache_path = create_and_canonicalize_directories([&accounts_hash_cache_path])
         .unwrap_or_else(|err| {
-            eprintln!("Unable to access accounts hash cache path: {err}");
+            eprintln!(
+                "Unable to access accounts hash cache path '{}': {err}",
+                accounts_hash_cache_path.display(),
+            );
             exit(1);
         })
         .pop()
@@ -1186,16 +1205,10 @@ pub fn main() {
             .ok()
             .map(|mb| mb * MB);
 
-    let filler_accounts_config = FillerAccountsConfig {
-        count: value_t_or_exit!(matches, "accounts_filler_count", usize),
-        size: value_t_or_exit!(matches, "accounts_filler_size", usize),
-    };
-
     let accounts_db_config = AccountsDbConfig {
         index: Some(accounts_index_config),
         base_working_path: Some(ledger_path.clone()),
         accounts_hash_cache_path: Some(accounts_hash_cache_path),
-        filler_accounts_config,
         write_cache_limit_bytes: value_t!(matches, "accounts_db_cache_limit_mb", u64)
             .ok()
             .map(|mb| mb * MB as u64),
@@ -1206,6 +1219,8 @@ pub fn main() {
             .then_some(CreateAncientStorage::Pack)
             .unwrap_or_default(),
         test_partitioned_epoch_rewards,
+        test_skip_rewrites_but_include_in_bank_hash: matches
+            .is_present("accounts_db_test_skip_rewrites"),
         ..AccountsDbConfig::default()
     };
 
@@ -1237,6 +1252,7 @@ pub fn main() {
             timeout: value_t!(matches, "rpc_bigtable_timeout", u64)
                 .ok()
                 .map(Duration::from_secs),
+            max_message_size: value_t_or_exit!(matches, "rpc_bigtable_max_message_size", usize),
         })
     } else {
         None
@@ -1431,11 +1447,10 @@ pub fn main() {
         } else {
             vec![ledger_path.join("accounts")]
         };
-    let account_paths = snapshot_utils::create_and_canonicalize_directories(&account_paths)
-        .unwrap_or_else(|err| {
-            eprintln!("Unable to access account path: {err}");
-            exit(1);
-        });
+    let account_paths = create_and_canonicalize_directories(account_paths).unwrap_or_else(|err| {
+        eprintln!("Unable to access account path: {err}");
+        exit(1);
+    });
 
     let account_shrink_paths: Option<Vec<PathBuf>> =
         values_t!(matches, "account_shrink_path", String)
@@ -1680,7 +1695,7 @@ pub fn main() {
         if SystemMonitorService::check_os_network_limits() {
             info!("OS network limits test passed.");
         } else {
-            eprintln!("OS network limit test failed. See: https://docs.solana.com/running-validator/validator-start#system-tuning");
+            eprintln!("OS network limit test failed. See: https://docs.solanalabs.com/operations/guides/validator-start#system-tuning");
             exit(1);
         }
     }

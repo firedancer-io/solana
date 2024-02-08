@@ -89,7 +89,7 @@ fn async_bencher(bank: &Bank, bank_client: &BankClient, transactions: &[Transact
     }
     for _ in 0..1_000_000_000_u64 {
         if bank
-            .get_signature_status(transactions.last().unwrap().signatures.get(0).unwrap())
+            .get_signature_status(transactions.last().unwrap().signatures.first().unwrap())
             .is_some()
         {
             break;
@@ -97,13 +97,13 @@ fn async_bencher(bank: &Bank, bank_client: &BankClient, transactions: &[Transact
         sleep(Duration::from_nanos(1));
     }
     if bank
-        .get_signature_status(transactions.last().unwrap().signatures.get(0).unwrap())
+        .get_signature_status(transactions.last().unwrap().signatures.first().unwrap())
         .unwrap()
         .is_err()
     {
         error!(
             "transaction failed: {:?}",
-            bank.get_signature_status(transactions.last().unwrap().signatures.get(0).unwrap())
+            bank.get_signature_status(transactions.last().unwrap().signatures.first().unwrap())
                 .unwrap()
         );
         panic!();
@@ -184,7 +184,7 @@ fn bench_bank_async_process_native_loader_transactions(bencher: &mut Bencher) {
 fn bench_bank_update_recent_blockhashes(bencher: &mut Bencher) {
     let (genesis_config, _mint_keypair) = create_genesis_config(100);
     let mut bank = Arc::new(Bank::new_for_benches(&genesis_config));
-    goto_end_of_slot(Arc::get_mut(&mut bank).unwrap());
+    goto_end_of_slot(bank.clone());
     let genesis_hash = bank.last_blockhash();
     // Prime blockhash_queue
     for i in 0..(MAX_RECENT_BLOCKHASHES + 1) {
@@ -193,7 +193,7 @@ fn bench_bank_update_recent_blockhashes(bencher: &mut Bencher) {
             &Pubkey::default(),
             (i + 1) as u64,
         ));
-        goto_end_of_slot(Arc::get_mut(&mut bank).unwrap());
+        goto_end_of_slot(bank.clone());
     }
     // Verify blockhash_queue is full (genesis hash has been kicked out)
     assert!(!bank.is_hash_valid_for_age(&genesis_hash, MAX_RECENT_BLOCKHASHES));

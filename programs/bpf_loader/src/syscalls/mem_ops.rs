@@ -84,14 +84,12 @@ declare_builtin_function!(
                 s1_addr,
                 n,
                 invoke_context.get_check_aligned(),
-                invoke_context.get_check_size(),
             )?;
             let s2 = translate_slice::<u8>(
                 memory_mapping,
                 s2_addr,
                 n,
                 invoke_context.get_check_aligned(),
-                invoke_context.get_check_size(),
             )?;
             let cmp_result = translate_type_mut::<i32>(
                 memory_mapping,
@@ -137,7 +135,6 @@ declare_builtin_function!(
                 dst_addr,
                 n,
                 invoke_context.get_check_aligned(),
-                invoke_context.get_check_size(),
             )?;
             s.fill(c as u8);
             Ok(0)
@@ -163,7 +160,6 @@ fn memmove(
             dst_addr,
             n,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?
         .as_mut_ptr();
         let src_ptr = translate_slice::<u8>(
@@ -171,7 +167,6 @@ fn memmove(
             src_addr,
             n,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?
         .as_ptr();
 
@@ -221,6 +216,21 @@ fn memcmp_non_contiguous(
     n: u64,
     memory_mapping: &MemoryMapping,
 ) -> Result<i32, Error> {
+    let memcmp_chunk = |s1_addr, s2_addr, chunk_len| {
+        let res = unsafe {
+            let s1 = slice::from_raw_parts(s1_addr, chunk_len);
+            let s2 = slice::from_raw_parts(s2_addr, chunk_len);
+            // Safety:
+            // memcmp is marked unsafe since it assumes that s1 and s2 are exactly chunk_len
+            // long. The whole point of iter_memory_pair_chunks is to find same length chunks
+            // across two memory regions.
+            memcmp(s1, s2, chunk_len)
+        };
+        if res != 0 {
+            return Err(MemcmpError::Diff(res).into());
+        }
+        Ok(0)
+    };
     match iter_memory_pair_chunks(
         AccessType::Load,
         src_addr,
@@ -229,21 +239,7 @@ fn memcmp_non_contiguous(
         n,
         memory_mapping,
         false,
-        |s1_addr, s2_addr, chunk_len| {
-            let res = unsafe {
-                let s1 = slice::from_raw_parts(s1_addr, chunk_len);
-                let s2 = slice::from_raw_parts(s2_addr, chunk_len);
-                // Safety:
-                // memcmp is marked unsafe since it assumes that s1 and s2 are exactly chunk_len
-                // long. The whole point of iter_memory_pair_chunks is to find same length chunks
-                // across two memory regions.
-                memcmp(s1, s2, chunk_len)
-            };
-            if res != 0 {
-                return Err(MemcmpError::Diff(res).into());
-            }
-            Ok(0)
-        },
+        memcmp_chunk,
     ) {
         Ok(res) => Ok(res),
         Err(error) => match error.downcast_ref() {

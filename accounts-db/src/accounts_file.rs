@@ -3,11 +3,12 @@ use {
         account_storage::meta::{
             StorableAccountsWithHashesAndWriteVersions, StoredAccountInfo, StoredAccountMeta,
         },
-        append_vec::{AppendVec, AppendVecError, MatchAccountOwnerError},
+        accounts_hash::AccountHash,
+        append_vec::{AppendVec, AppendVecError},
         storable_accounts::StorableAccounts,
         tiered_storage::error::TieredStorageError,
     },
-    solana_sdk::{account::ReadableAccount, clock::Slot, hash::Hash, pubkey::Pubkey},
+    solana_sdk::{account::ReadableAccount, clock::Slot, pubkey::Pubkey},
     std::{
         borrow::Borrow,
         mem,
@@ -37,6 +38,14 @@ pub enum AccountsFileError {
 
     #[error("TieredStorageError: {0}")]
     TieredStorageError(#[from] TieredStorageError),
+}
+
+#[derive(Error, Debug, PartialEq, Eq)]
+pub enum MatchAccountOwnerError {
+    #[error("The account owner does not match with the provided list")]
+    NoMatch,
+    #[error("Unable to load the account")]
+    UnableToLoad,
 }
 
 pub type Result<T> = std::result::Result<T, AccountsFileError>;
@@ -154,7 +163,7 @@ impl AccountsFile {
         'b,
         T: ReadableAccount + Sync,
         U: StorableAccounts<'a, T>,
-        V: Borrow<Hash>,
+        V: Borrow<AccountHash>,
     >(
         &self,
         accounts: &StorableAccountsWithHashesAndWriteVersions<'a, 'b, T, U, V>,

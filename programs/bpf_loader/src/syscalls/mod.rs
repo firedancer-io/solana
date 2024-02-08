@@ -22,7 +22,6 @@ use {
         vm::Config,
     },
     solana_sdk::{
-        account::{ReadableAccount, WritableAccount},
         account_info::AccountInfo,
         alt_bn128::prelude::{
             alt_bn128_addition, alt_bn128_multiplication, alt_bn128_pairing, AltBn128Error,
@@ -36,20 +35,14 @@ use {
         feature_set::FeatureSet,
         feature_set::{
             self, blake3_syscall_enabled, curve25519_syscall_enabled,
-            disable_cpi_setting_executable_and_rent_epoch, disable_deploy_of_alloc_free_syscall,
-            disable_fees_sysvar, enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
-            enable_big_mod_exp_syscall, enable_early_verification_of_account_modifications,
-            enable_partitioned_epoch_reward, enable_poseidon_syscall,
+            disable_deploy_of_alloc_free_syscall, disable_fees_sysvar,
+            enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
+            enable_big_mod_exp_syscall, enable_partitioned_epoch_reward, enable_poseidon_syscall,
             error_on_syscall_bpf_function_hash_collisions, last_restart_slot_sysvar,
-            libsecp256k1_0_5_upgrade_enabled, reject_callx_r10,
-            remaining_compute_units_syscall_enabled, stop_sibling_instruction_search_at_parent,
-            stop_truncating_strings_in_syscalls, switch_to_new_elf_parser,
+            reject_callx_r10, remaining_compute_units_syscall_enabled, switch_to_new_elf_parser,
         },
         hash::{Hash, Hasher},
-        instruction::{
-            AccountMeta, InstructionError, ProcessedSiblingInstruction,
-            TRANSACTION_LEVEL_STACK_HEIGHT,
-        },
+        instruction::{AccountMeta, InstructionError, ProcessedSiblingInstruction},
         keccak, native_loader, poseidon,
         precompiles::is_precompile,
         program::MAX_RETURN_DATA,
@@ -515,14 +508,13 @@ fn translate_slice_inner<'a, T>(
     vm_addr: u64,
     len: u64,
     check_aligned: bool,
-    check_size: bool,
 ) -> Result<&'a mut [T], Error> {
     if len == 0 {
         return Ok(&mut []);
     }
 
     let total_size = len.saturating_mul(size_of::<T>() as u64);
-    if check_size && isize::try_from(total_size).is_err() {
+    if isize::try_from(total_size).is_err() {
         return Err(SyscallError::InvalidLength.into());
     }
 
@@ -538,7 +530,6 @@ fn translate_slice_mut<'a, T>(
     vm_addr: u64,
     len: u64,
     check_aligned: bool,
-    check_size: bool,
 ) -> Result<&'a mut [T], Error> {
     translate_slice_inner::<T>(
         memory_mapping,
@@ -546,7 +537,6 @@ fn translate_slice_mut<'a, T>(
         vm_addr,
         len,
         check_aligned,
-        check_size,
     )
 }
 fn translate_slice<'a, T>(
@@ -554,7 +544,6 @@ fn translate_slice<'a, T>(
     vm_addr: u64,
     len: u64,
     check_aligned: bool,
-    check_size: bool,
 ) -> Result<&'a [T], Error> {
     translate_slice_inner::<T>(
         memory_mapping,
@@ -562,7 +551,6 @@ fn translate_slice<'a, T>(
         vm_addr,
         len,
         check_aligned,
-        check_size,
     )
     .map(|value| &*value)
 }
@@ -574,23 +562,12 @@ fn translate_string_and_do(
     addr: u64,
     len: u64,
     check_aligned: bool,
-    check_size: bool,
-    stop_truncating_strings_in_syscalls: bool,
     work: &mut dyn FnMut(&str) -> Result<u64, Error>,
 ) -> Result<u64, Error> {
-    let buf = translate_slice::<u8>(memory_mapping, addr, len, check_aligned, check_size)?;
-    let msg = if stop_truncating_strings_in_syscalls {
-        buf
-    } else {
-        let i = match buf.iter().position(|byte| *byte == 0) {
-            Some(i) => i,
-            None => len as usize,
-        };
-        buf.get(..i).ok_or(SyscallError::InvalidLength)?
-    };
-    match from_utf8(msg) {
+    let buf = translate_slice::<u8>(memory_mapping, addr, len, check_aligned)?;
+    match from_utf8(buf) {
         Ok(message) => work(message),
-        Err(err) => Err(SyscallError::InvalidString(err, msg.to_vec()).into()),
+        Err(err) => Err(SyscallError::InvalidString(err, buf.to_vec()).into()),
     }
 }
 
@@ -633,10 +610,6 @@ declare_builtin_function!(
             file,
             len,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
-            invoke_context
-                .feature_set
-                .is_active(&stop_truncating_strings_in_syscalls::id()),
             &mut |string: &str| Err(SyscallError::Panic(string.to_string(), line, column).into()),
         )
     }
@@ -686,15 +659,9 @@ fn translate_and_check_program_address_inputs<'a>(
     program_id_addr: u64,
     memory_mapping: &mut MemoryMapping,
     check_aligned: bool,
-    check_size: bool,
 ) -> Result<(Vec<&'a [u8]>, &'a Pubkey), Error> {
-    let untranslated_seeds = translate_slice::<&[u8]>(
-        memory_mapping,
-        seeds_addr,
-        seeds_len,
-        check_aligned,
-        check_size,
-    )?;
+    let untranslated_seeds =
+        translate_slice::<&[u8]>(memory_mapping, seeds_addr, seeds_len, check_aligned)?;
     if untranslated_seeds.len() > MAX_SEEDS {
         return Err(SyscallError::BadSeeds(PubkeyError::MaxSeedLengthExceeded).into());
     }
@@ -709,7 +676,6 @@ fn translate_and_check_program_address_inputs<'a>(
                 untranslated_seed.as_ptr() as *const _ as u64,
                 untranslated_seed.len() as u64,
                 check_aligned,
-                check_size,
             )
         })
         .collect::<Result<Vec<_>, Error>>()?;
@@ -740,7 +706,6 @@ declare_builtin_function!(
             program_id_addr,
             memory_mapping,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let Ok(new_address) = Pubkey::create_program_address(&seeds, program_id) else {
@@ -751,7 +716,6 @@ declare_builtin_function!(
             address_addr,
             32,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
         address.copy_from_slice(new_address.as_ref());
         Ok(0)
@@ -781,7 +745,6 @@ declare_builtin_function!(
             program_id_addr,
             memory_mapping,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let mut bump_seed = [std::u8::MAX];
@@ -803,7 +766,6 @@ declare_builtin_function!(
                         address_addr,
                         std::mem::size_of::<Pubkey>() as u64,
                         invoke_context.get_check_aligned(),
-                        invoke_context.get_check_size(),
                     )?;
                     if !is_nonoverlapping(
                         bump_seed_ref as *const _ as usize,
@@ -845,21 +807,18 @@ declare_builtin_function!(
             hash_addr,
             keccak::HASH_BYTES as u64,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
         let signature = translate_slice::<u8>(
             memory_mapping,
             signature_addr,
             SECP256K1_SIGNATURE_LENGTH as u64,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
         let secp256k1_recover_result = translate_slice_mut::<u8>(
             memory_mapping,
             result_addr,
             SECP256K1_PUBLIC_KEY_LENGTH as u64,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let Ok(message) = libsecp256k1::Message::parse_slice(hash) else {
@@ -871,16 +830,7 @@ declare_builtin_function!(
         let Ok(recovery_id) = libsecp256k1::RecoveryId::parse(adjusted_recover_id_val) else {
             return Ok(Secp256k1RecoverError::InvalidRecoveryId.into());
         };
-        let sig_parse_result = if invoke_context
-            .feature_set
-            .is_active(&libsecp256k1_0_5_upgrade_enabled::id())
-        {
-            libsecp256k1::Signature::parse_standard_slice(signature)
-        } else {
-            libsecp256k1::Signature::parse_overflowing_slice(signature)
-        };
-
-        let Ok(signature) = sig_parse_result else {
+        let Ok(signature) = libsecp256k1::Signature::parse_standard_slice(signature) else {
             return Ok(Secp256k1RecoverError::InvalidSignature.into());
         };
 
@@ -1171,6 +1121,17 @@ declare_builtin_function!(
         use solana_zk_token_sdk::curve25519::{
             curve_syscall_traits::*, edwards, ristretto, scalar,
         };
+
+        let restrict_msm_length = invoke_context
+            .feature_set
+            .is_active(&feature_set::curve25519_restrict_msm_length::id());
+        #[allow(clippy::collapsible_if)]
+        if restrict_msm_length {
+            if points_len > 512 {
+                return Err(Box::new(SyscallError::InvalidLength));
+            }
+        }
+
         match curve_id {
             CURVE25519_EDWARDS => {
                 let cost = invoke_context
@@ -1189,7 +1150,6 @@ declare_builtin_function!(
                     scalars_addr,
                     points_len,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )?;
 
                 let points = translate_slice::<edwards::PodEdwardsPoint>(
@@ -1197,7 +1157,6 @@ declare_builtin_function!(
                     points_addr,
                     points_len,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )?;
 
                 if let Some(result_point) = edwards::multiscalar_multiply_edwards(scalars, points) {
@@ -1229,7 +1188,6 @@ declare_builtin_function!(
                     scalars_addr,
                     points_len,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )?;
 
                 let points = translate_slice::<ristretto::PodRistrettoPoint>(
@@ -1237,7 +1195,6 @@ declare_builtin_function!(
                     points_addr,
                     points_len,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )?;
 
                 if let Some(result_point) =
@@ -1291,7 +1248,6 @@ declare_builtin_function!(
                 addr,
                 len,
                 invoke_context.get_check_aligned(),
-                invoke_context.get_check_size(),
             )?
             .to_vec()
         };
@@ -1338,7 +1294,6 @@ declare_builtin_function!(
                 return_data_addr,
                 length,
                 invoke_context.get_check_aligned(),
-                invoke_context.get_check_size(),
             )?;
 
             let to_slice = return_data_result;
@@ -1388,9 +1343,6 @@ declare_builtin_function!(
         let budget = invoke_context.get_compute_budget();
 
         consume_compute_meter(invoke_context, budget.syscall_base_cost)?;
-        let stop_sibling_instruction_search_at_parent = invoke_context
-            .feature_set
-            .is_active(&stop_sibling_instruction_search_at_parent::id());
 
         // Reverse iterate through the instruction trace,
         // ignoring anything except instructions on the same level
@@ -1404,10 +1356,7 @@ declare_builtin_function!(
             let instruction_context = invoke_context
                 .transaction_context
                 .get_instruction_context_at_index_in_trace(index_in_trace)?;
-            if (stop_sibling_instruction_search_at_parent
-                || instruction_context.get_stack_height() == TRANSACTION_LEVEL_STACK_HEIGHT)
-                && instruction_context.get_stack_height() < stack_height
-            {
+            if instruction_context.get_stack_height() < stack_height {
                 break;
             }
             if instruction_context.get_stack_height() == stack_height {
@@ -1440,14 +1389,12 @@ declare_builtin_function!(
                     data_addr,
                     result_header.data_len,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )?;
                 let accounts = translate_slice_mut::<AccountMeta>(
                     memory_mapping,
                     accounts_addr,
                     result_header.accounts_len,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )?;
 
                 if !is_nonoverlapping(
@@ -1590,7 +1537,6 @@ declare_builtin_function!(
             input_addr,
             input_size,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let call_result = translate_slice_mut::<u8>(
@@ -1598,7 +1544,6 @@ declare_builtin_function!(
             result_addr,
             output as u64,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let calculation = match group_op {
@@ -1643,9 +1588,8 @@ declare_builtin_function!(
             params,
             1,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?
-        .get(0)
+        .first()
         .ok_or(SyscallError::InvalidLength)?;
 
         if params.base_len > 512 || params.exponent_len > 512 || params.modulus_len > 512 {
@@ -1671,7 +1615,6 @@ declare_builtin_function!(
             params.base as *const _ as u64,
             params.base_len,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let exponent = translate_slice::<u8>(
@@ -1679,7 +1622,6 @@ declare_builtin_function!(
             params.exponent as *const _ as u64,
             params.exponent_len,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let modulus = translate_slice::<u8>(
@@ -1687,7 +1629,6 @@ declare_builtin_function!(
             params.modulus as *const _ as u64,
             params.modulus_len,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let value = big_mod_exp(base, exponent, modulus);
@@ -1697,7 +1638,6 @@ declare_builtin_function!(
             return_value,
             params.modulus_len,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
         return_value.copy_from_slice(value.as_slice());
 
@@ -1744,14 +1684,12 @@ declare_builtin_function!(
             result_addr,
             poseidon::HASH_BYTES as u64,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
         let inputs = translate_slice::<&[u8]>(
             memory_mapping,
             vals_addr,
             vals_len,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
         let inputs = inputs
             .iter()
@@ -1761,7 +1699,6 @@ declare_builtin_function!(
                     input.as_ptr() as *const _ as u64,
                     input.len() as u64,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -1843,7 +1780,6 @@ declare_builtin_function!(
             input_addr,
             input_size,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         let call_result = translate_slice_mut::<u8>(
@@ -1851,7 +1787,6 @@ declare_builtin_function!(
             result_addr,
             output as u64,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
 
         match op {
@@ -1934,7 +1869,6 @@ declare_builtin_function!(
             result_addr,
             std::mem::size_of::<H::Output>() as u64,
             invoke_context.get_check_aligned(),
-            invoke_context.get_check_size(),
         )?;
         let mut hasher = H::create_hasher();
         if vals_len > 0 {
@@ -1943,7 +1877,6 @@ declare_builtin_function!(
                 vals_addr,
                 vals_len,
                 invoke_context.get_check_aligned(),
-                invoke_context.get_check_size(),
             )?;
             for val in vals.iter() {
                 let bytes = translate_slice::<u8>(
@@ -1951,7 +1884,6 @@ declare_builtin_function!(
                     val.as_ptr() as u64,
                     val.len() as u64,
                     invoke_context.get_check_aligned(),
-                    invoke_context.get_check_size(),
                 )?;
                 let cost = compute_budget.mem_op_base_cost.max(
                     hash_byte_cost.saturating_mul(
@@ -2131,7 +2063,7 @@ mod tests {
         )
         .unwrap();
         let translated_data =
-            translate_slice::<u8>(&memory_mapping, data.as_ptr() as u64, 0, true, true).unwrap();
+            translate_slice::<u8>(&memory_mapping, data.as_ptr() as u64, 0, true).unwrap();
         assert_eq!(data, translated_data);
         assert_eq!(0, translated_data.len());
 
@@ -2144,24 +2076,18 @@ mod tests {
         )
         .unwrap();
         let translated_data =
-            translate_slice::<u8>(&memory_mapping, 0x100000000, data.len() as u64, true, true)
-                .unwrap();
+            translate_slice::<u8>(&memory_mapping, 0x100000000, data.len() as u64, true).unwrap();
         assert_eq!(data, translated_data);
         *data.first_mut().unwrap() = 10;
         assert_eq!(data, translated_data);
         assert!(
-            translate_slice::<u8>(&memory_mapping, data.as_ptr() as u64, u64::MAX, true, true)
-                .is_err()
+            translate_slice::<u8>(&memory_mapping, data.as_ptr() as u64, u64::MAX, true).is_err()
         );
 
-        assert!(translate_slice::<u8>(
-            &memory_mapping,
-            0x100000000 - 1,
-            data.len() as u64,
-            true,
-            true
-        )
-        .is_err());
+        assert!(
+            translate_slice::<u8>(&memory_mapping, 0x100000000 - 1, data.len() as u64, true,)
+                .is_err()
+        );
 
         // u64
         let mut data = vec![1u64, 2, 3, 4, 5];
@@ -2175,14 +2101,11 @@ mod tests {
         )
         .unwrap();
         let translated_data =
-            translate_slice::<u64>(&memory_mapping, 0x100000000, data.len() as u64, true, true)
-                .unwrap();
+            translate_slice::<u64>(&memory_mapping, 0x100000000, data.len() as u64, true).unwrap();
         assert_eq!(data, translated_data);
         *data.first_mut().unwrap() = 10;
         assert_eq!(data, translated_data);
-        assert!(
-            translate_slice::<u64>(&memory_mapping, 0x100000000, u64::MAX, true, true).is_err()
-        );
+        assert!(translate_slice::<u64>(&memory_mapping, 0x100000000, u64::MAX, true).is_err());
 
         // Pubkeys
         let mut data = vec![solana_sdk::pubkey::new_rand(); 5];
@@ -2198,7 +2121,7 @@ mod tests {
         )
         .unwrap();
         let translated_data =
-            translate_slice::<Pubkey>(&memory_mapping, 0x100000000, data.len() as u64, true, true)
+            translate_slice::<Pubkey>(&memory_mapping, 0x100000000, data.len() as u64, true)
                 .unwrap();
         assert_eq!(data, translated_data);
         *data.first_mut().unwrap() = solana_sdk::pubkey::new_rand(); // Both should point to same place
@@ -2221,8 +2144,6 @@ mod tests {
                 &memory_mapping,
                 0x100000000,
                 string.len() as u64,
-                true,
-                true,
                 true,
                 &mut |string: &str| {
                     assert_eq!(string, "Gaggablaghblagh!");
@@ -3211,6 +3132,122 @@ mod tests {
         assert_eq!(expected_product, result_point);
     }
 
+    #[test]
+    fn test_syscall_multiscalar_multiplication_maximum_length_exceeded() {
+        use solana_zk_token_sdk::curve25519::curve_syscall_traits::{
+            CURVE25519_EDWARDS, CURVE25519_RISTRETTO,
+        };
+
+        let config = Config::default();
+        prepare_mockup!(invoke_context, program_id, bpf_loader::id());
+
+        let scalar: [u8; 32] = [
+            254, 198, 23, 138, 67, 243, 184, 110, 236, 115, 236, 205, 205, 215, 79, 114, 45, 250,
+            78, 137, 3, 107, 136, 237, 49, 126, 117, 223, 37, 191, 88, 6,
+        ];
+        let scalars = [scalar; 513];
+        let scalars_va = 0x100000000;
+
+        let edwards_point: [u8; 32] = [
+            252, 31, 230, 46, 173, 95, 144, 148, 158, 157, 63, 10, 8, 68, 58, 176, 142, 192, 168,
+            53, 61, 105, 194, 166, 43, 56, 246, 236, 28, 146, 114, 133,
+        ];
+        let edwards_points = [edwards_point; 513];
+        let edwards_points_va = 0x200000000;
+
+        let ristretto_point: [u8; 32] = [
+            130, 35, 97, 25, 18, 199, 33, 239, 85, 143, 119, 111, 49, 51, 224, 40, 167, 185, 240,
+            179, 25, 194, 213, 41, 14, 155, 104, 18, 181, 197, 15, 112,
+        ];
+        let ristretto_points = [ristretto_point; 513];
+        let ristretto_points_va = 0x300000000;
+
+        let mut result_point: [u8; 32] = [0; 32];
+        let result_point_va = 0x400000000;
+
+        let mut memory_mapping = MemoryMapping::new(
+            vec![
+                MemoryRegion::new_readonly(bytes_of_slice(&scalars), scalars_va),
+                MemoryRegion::new_readonly(bytes_of_slice(&edwards_points), edwards_points_va),
+                MemoryRegion::new_readonly(bytes_of_slice(&ristretto_points), ristretto_points_va),
+                MemoryRegion::new_writable(bytes_of_slice_mut(&mut result_point), result_point_va),
+            ],
+            &config,
+            &SBPFVersion::V2,
+        )
+        .unwrap();
+
+        // test Edwards
+        invoke_context.mock_set_remaining(500_000);
+        let result = SyscallCurveMultiscalarMultiplication::rust(
+            &mut invoke_context,
+            CURVE25519_EDWARDS,
+            scalars_va,
+            edwards_points_va,
+            512, // below maximum vector length
+            result_point_va,
+            &mut memory_mapping,
+        );
+
+        assert_eq!(0, result.unwrap());
+        let expected_product = [
+            20, 146, 226, 37, 22, 61, 86, 249, 208, 40, 38, 11, 126, 101, 10, 82, 81, 77, 88, 209,
+            15, 76, 82, 251, 180, 133, 84, 243, 162, 0, 11, 145,
+        ];
+        assert_eq!(expected_product, result_point);
+
+        invoke_context.mock_set_remaining(500_000);
+        let result = SyscallCurveMultiscalarMultiplication::rust(
+            &mut invoke_context,
+            CURVE25519_EDWARDS,
+            scalars_va,
+            edwards_points_va,
+            513, // above maximum vector length
+            result_point_va,
+            &mut memory_mapping,
+        )
+        .unwrap_err()
+        .downcast::<SyscallError>()
+        .unwrap();
+
+        assert_eq!(*result, SyscallError::InvalidLength);
+
+        // test Ristretto
+        invoke_context.mock_set_remaining(500_000);
+        let result = SyscallCurveMultiscalarMultiplication::rust(
+            &mut invoke_context,
+            CURVE25519_RISTRETTO,
+            scalars_va,
+            ristretto_points_va,
+            512, // below maximum vector length
+            result_point_va,
+            &mut memory_mapping,
+        );
+
+        assert_eq!(0, result.unwrap());
+        let expected_product = [
+            146, 224, 127, 193, 252, 64, 196, 181, 246, 104, 27, 116, 183, 52, 200, 239, 2, 108,
+            21, 27, 97, 44, 95, 65, 26, 218, 223, 39, 197, 132, 51, 49,
+        ];
+        assert_eq!(expected_product, result_point);
+
+        invoke_context.mock_set_remaining(500_000);
+        let result = SyscallCurveMultiscalarMultiplication::rust(
+            &mut invoke_context,
+            CURVE25519_RISTRETTO,
+            scalars_va,
+            ristretto_points_va,
+            513, // above maximum vector length
+            result_point_va,
+            &mut memory_mapping,
+        )
+        .unwrap_err()
+        .downcast::<SyscallError>()
+        .unwrap();
+
+        assert_eq!(*result, SyscallError::InvalidLength);
+    }
+
     fn create_filled_type<T: Default>(zero_init: bool) -> T {
         let mut val = T::default();
         let p = &mut val as *mut _ as *mut u8;
@@ -3268,9 +3305,9 @@ mod tests {
 
         let mut sysvar_cache = SysvarCache::default();
         sysvar_cache.set_clock(src_clock.clone());
-        sysvar_cache.set_epoch_schedule(src_epochschedule);
+        sysvar_cache.set_epoch_schedule(src_epochschedule.clone());
         sysvar_cache.set_fees(src_fees.clone());
-        sysvar_cache.set_rent(src_rent);
+        sysvar_cache.set_rent(src_rent.clone());
         sysvar_cache.set_epoch_rewards(src_rewards);
 
         let transaction_accounts = vec![
@@ -3704,14 +3741,12 @@ mod tests {
             VM_BASE_ADDRESS.saturating_add(DATA_OFFSET as u64),
             processed_sibling_instruction.data_len,
             true,
-            true,
         )
         .unwrap();
         let accounts = translate_slice_mut::<AccountMeta>(
             &memory_mapping,
             VM_BASE_ADDRESS.saturating_add(ACCOUNTS_OFFSET as u64),
             processed_sibling_instruction.accounts_len,
-            true,
             true,
         )
         .unwrap();

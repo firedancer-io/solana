@@ -6,7 +6,6 @@ extern crate lazy_static;
 
 pub mod account_info;
 pub mod account_overrides;
-pub mod account_rent_state;
 pub mod account_storage;
 pub mod accounts;
 pub mod accounts_cache;
@@ -47,6 +46,7 @@ pub mod storable_accounts;
 pub mod tiered_storage;
 pub mod transaction_error_metrics;
 pub mod transaction_results;
+pub mod utils;
 mod verify_accounts_hash_in_background;
 pub mod waitable_condvar;
 
