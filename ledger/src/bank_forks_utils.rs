@@ -68,6 +68,8 @@ pub fn load(
         entry_notification_sender,
         accounts_update_notifier,
         exit,
+        // FIREDANCER: No need to communicate these leader schedules to Firedancer
+        false,
     );
 
     blockstore_processor::process_blockstore_from_root(
@@ -95,6 +97,8 @@ pub fn load_bank_forks(
     entry_notification_sender: Option<&EntryNotifierSender>,
     accounts_update_notifier: Option<AccountsUpdateNotifier>,
     exit: Arc<AtomicBool>,
+    // FIREDANCER: Pass application name through so leader schedule cache can find the shared workspaces.
+    firedancer_send: bool,
 ) -> (
     Arc<RwLock<BankForks>>,
     LeaderScheduleCache,
@@ -189,8 +193,12 @@ pub fn load_bank_forks(
             (bank_forks, None)
         };
 
+    // FIREDANCER: Send leader schedule updates from this cache.
+    // let mut leader_schedule_cache =
+    //     LeaderScheduleCache::new_from_bank(&bank_forks.read().unwrap().root_bank());
+    let bank = &bank_forks.read().unwrap().root_bank();
     let mut leader_schedule_cache =
-        LeaderScheduleCache::new_from_bank(&bank_forks.read().unwrap().root_bank());
+        LeaderScheduleCache::new(*bank.epoch_schedule(), bank, firedancer_send);
     if process_options.full_leader_cache {
         leader_schedule_cache.set_max_schedules(std::usize::MAX);
     }
