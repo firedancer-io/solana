@@ -671,6 +671,8 @@ pub fn test_process_blockstore(
         None,
         None,
         exit,
+        // FIREDANCER: No need to communicate these leader schedules to Firedancer
+        false,
     );
 
     process_blockstore_from_root(

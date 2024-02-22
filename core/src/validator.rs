@@ -1795,6 +1795,8 @@ fn load_blockstore(
                 .map(|service| service.sender()),
             accounts_update_notifier,
             exit,
+            // FIREDANCER: We want to get leader scheduel updates from bank forks.
+            true,
         );
 
     // Before replay starts, set the callbacks in each of the banks in BankForks so that
