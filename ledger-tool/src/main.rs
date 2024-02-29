@@ -2264,6 +2264,15 @@ fn main() {
                             warn!("error inserting shreds for slot {}", slot);
                         }
                     }
+                    let is_root = source.is_root(slot);
+                    if is_root {
+                        let _ = target.set_roots([slot].iter());
+                    }
+
+                    let bank_hash = source.get_bank_hash(slot);
+                    if let Some(bank_hash) = bank_hash {
+                        target.insert_bank_hash(slot, bank_hash, is_root);
+                    }
                 }
             }
             ("genesis", Some(arg_matches)) => {
