@@ -7346,15 +7346,18 @@ impl Bank {
 
     /// Forcibly overwrites current capitalization by actually recalculating accounts' balances.
     /// This should only be used for developing purposes.
-    pub fn set_capitalization(&self) -> u64 {
+    pub fn store_capitalization(&self, val: u64) -> u64 {
         let old = self.capitalization();
         // We cannot debug verify the hash calculation here becuase calculate_capitalization will use the index calculation due to callers using the write cache.
         // debug_verify only exists as an extra debugging step under the assumption that this code path is only used for tests. But, this is used by ledger-tool create-snapshot
         // for example.
-        let debug_verify = false;
-        self.capitalization
-            .store(self.calculate_capitalization(debug_verify), Relaxed);
+        self.capitalization .store(val, Relaxed);
         old
+    }
+
+    pub fn set_capitalization(&self) -> u64 {
+        let debug_verify = false;
+        self.store_capitalization(self.calculate_capitalization(debug_verify))
     }
 
     /// Returns the `AccountsHash` that was calculated for this bank's slot

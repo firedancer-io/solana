@@ -79,7 +79,8 @@ impl<'a> SnapshotMinimizer<'a> {
 
         // Update accounts_cache and capitalization
         minimizer.bank.force_flush_accounts_cache();
-        minimizer.bank.set_capitalization();
+        //        minimizer.bank.set_capitalization();
+        minimizer.bank.store_capitalization(bank.capitalization());
     }
 
     /// Helper function to measure time and number of accounts added
