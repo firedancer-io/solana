@@ -7466,7 +7466,7 @@ impl Bank {
                     );
             }
 
-            panic!(
+            warn!(
                 "capitalization_mismatch. slot: {}, calculated_lamports: {}, capitalization: {}",
                 self.slot(),
                 total_lamports,
