@@ -1391,7 +1391,7 @@ impl Bank {
                     &feature_set,
                     &new.runtime_config.compute_budget.unwrap_or_default(),
                     false, /* deployment */
-                    false, /* debugging_features */
+                    true, /* debugging_features */
                 )
                 .unwrap();
                 let program_runtime_environment_v2 = create_program_runtime_environment_v2(
@@ -6631,7 +6631,7 @@ impl Bank {
                 &self.feature_set,
                 &self.runtime_config.compute_budget.unwrap_or_default(),
                 false, /* deployment */
-                false, /* debugging_features */
+                true, /* debugging_features */
             )
             .unwrap(),
         );

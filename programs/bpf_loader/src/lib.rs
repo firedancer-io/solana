@@ -24,6 +24,7 @@ use {
         error::{EbpfError, ProgramResult},
         memory_region::{AccessType, MemoryCowCallback, MemoryMapping, MemoryRegion},
         program::BuiltinProgram,
+        static_analysis::Analysis,
         verifier::RequisiteVerifier,
         vm::{ContextObject, EbpfVm},
     },
@@ -52,6 +53,7 @@ use {
         cell::RefCell,
         mem,
         rc::Rc,
+        str::FromStr,
         sync::{atomic::Ordering, Arc},
     },
     syscalls::create_program_runtime_environment_v1,
@@ -114,8 +116,8 @@ macro_rules! deploy_program {
         let deployment_program_runtime_environment = create_program_runtime_environment_v1(
             &$invoke_context.feature_set,
             $invoke_context.get_compute_budget(),
-            true, /* deployment */
-            false, /* debugging_features */
+            false, /* deployment */
+            true, /* debugging_features */
         ).map_err(|e| {
             ic_msg!($invoke_context, "Failed to register syscalls: {}", e);
             InstructionError::ProgramEnvironmentSetupFailure
@@ -1492,6 +1494,21 @@ fn execute<'a, 'b: 'a>(
 
         execute_time = Measure::start("execute");
         let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);
+
+        if false {
+            let mut trace_buffer = Vec::new();
+            let analysis = Analysis::from_executable(executable).unwrap();
+            let log = vm.context_object_pointer.syscall_context
+                            .last()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                            .trace_log.as_slice();
+            analysis.disassemble_trace_log(&mut trace_buffer, log)?;
+            let trace_string = String::from_utf8(trace_buffer).unwrap();
+            log::info!("BPF Program Instruction Trace:\n{}", trace_string);
+        }
+        
         drop(vm);
         ic_logger_msg!(
             log_collector,
