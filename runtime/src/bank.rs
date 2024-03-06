@@ -1377,7 +1377,7 @@ impl Bank {
                     drop(loaded_programs_cache);
                     let recompiled = new.load_program(&key, false, Some(program_to_recompile));
                     let mut loaded_programs_cache = new.loaded_programs_cache.write().unwrap();
-                    loaded_programs_cache.replenish(key, recompiled);
+                    loaded_programs_cache.assign_program(key, recompiled);
                 }
             } else if new.epoch() != loaded_programs_cache.latest_root_epoch
                 || slot_index.saturating_add(slots_in_recompilation_phase) >= slots_in_epoch
@@ -4305,14 +4305,13 @@ impl Bank {
             &mut timings,
             Some(&account_overrides),
             None,
+            true,
         );
 
         let post_simulation_accounts = loaded_transactions
             .into_iter()
             .next()
-            .unwrap()
-            .0
-            .ok()
+            .and_then(|(loaded_transactions_res, _)| loaded_transactions_res.ok())
             .map(|loaded_transaction| {
                 loaded_transaction
                     .accounts
@@ -4334,7 +4333,12 @@ impl Bank {
 
         debug!("simulate_transaction: {:?}", timings);
 
-        let execution_result = execution_results.pop().unwrap();
+        let execution_result =
+            execution_results
+                .pop()
+                .unwrap_or(TransactionExecutionResult::NotExecuted(
+                    TransactionError::InvalidProgramForExecution,
+                ));
         let flattened_result = execution_result.flattened_result();
         let (logs, return_data, inner_instructions) = match execution_result {
             TransactionExecutionResult::Executed { details, .. } => (
@@ -4747,11 +4751,22 @@ impl Bank {
 
         let mut timings = ExecuteDetailsTimings::default();
         load_program_metrics.submit_datapoint(&mut timings);
+        if !Arc::ptr_eq(
+            &environments.program_runtime_v1,
+            &loaded_programs_cache.environments.program_runtime_v1,
+        ) || !Arc::ptr_eq(
+            &environments.program_runtime_v2,
+            &loaded_programs_cache.environments.program_runtime_v2,
+        ) {
+            // There can be two entries per program when the environment changes.
+            // One for the old environment before the epoch boundary and one for the new environment after the epoch boundary.
+            // These two entries have the same deployment slot, so they must differ in their effective slot instead.
+            // This is done by setting the effective slot of the entry for the new environment to the epoch boundary.
+            loaded_program.effective_slot = loaded_program
+                .effective_slot
+                .max(self.epoch_schedule.get_first_slot_in_epoch(effective_epoch));
+        }
         if let Some(recompile) = recompile {
-            loaded_program.effective_slot = loaded_program.effective_slot.max(
-                self.epoch_schedule()
-                    .get_first_slot_in_epoch(effective_epoch),
-            );
             loaded_program.tx_usage_counter =
                 AtomicU64::new(recompile.tx_usage_counter.load(Ordering::Relaxed));
             loaded_program.ix_usage_counter =
@@ -4943,6 +4958,7 @@ impl Bank {
     fn replenish_program_cache(
         &self,
         program_accounts_map: &HashMap<Pubkey, (&Pubkey, u64)>,
+        limit_to_load_programs: bool,
     ) -> LoadedProgramsForTxBatch {
         let mut missing_programs: Vec<(Pubkey, (LoadedProgramMatchCriteria, u64))> =
             if self.check_program_modification_slot {
@@ -4988,11 +5004,14 @@ impl Bank {
                 }
                 // Submit our last completed loading task.
                 if let Some((key, program)) = program_to_store.take() {
-                    loaded_programs_cache.finish_cooperative_loading_task(
-                        self.slot(),
-                        key,
-                        program,
-                    );
+                    if loaded_programs_cache
+                        .finish_cooperative_loading_task(self.slot, key, program)
+                        && limit_to_load_programs
+                    {
+                        let mut ret = LoadedProgramsForTxBatch::default();
+                        ret.hit_max_limit = true;
+                        return ret;
+                    }
                 }
                 // Figure out which program needs to be loaded next.
                 let program_to_load = loaded_programs_cache.extract(
@@ -5077,7 +5096,7 @@ impl Bank {
         result
     }
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     pub fn load_and_execute_transactions(
         &self,
         batch: &TransactionBatch,
@@ -5088,6 +5107,7 @@ impl Bank {
         timings: &mut ExecuteTimings,
         account_overrides: Option<&AccountOverrides>,
         log_messages_bytes_limit: Option<usize>,
+        limit_to_load_programs: bool,
     ) -> LoadAndExecuteTransactionsOutput {
         let sanitized_txs = batch.sanitized_transactions();
         debug!("processing transactions: {}", sanitized_txs.len());
@@ -5151,8 +5171,21 @@ impl Bank {
         }
 
         let programs_loaded_for_tx_batch = Rc::new(RefCell::new(
-            self.replenish_program_cache(&program_accounts_map),
+            self.replenish_program_cache(&program_accounts_map, limit_to_load_programs),
         ));
+
+        if programs_loaded_for_tx_batch.borrow().hit_max_limit {
+            return LoadAndExecuteTransactionsOutput {
+                loaded_transactions: vec![],
+                execution_results: vec![],
+                retryable_transaction_indexes,
+                executed_transactions_count: 0,
+                executed_non_vote_transactions_count: 0,
+                executed_with_successful_result_count: 0,
+                signature_count: 0,
+                error_counters,
+            };
+        }
 
         let mut load_time = Measure::start("accounts_load");
         let mut loaded_transactions = load_accounts(
@@ -6309,6 +6342,7 @@ impl Bank {
             timings,
             None,
             log_messages_bytes_limit,
+            false,
         );
 
         let (last_blockhash, lamports_per_signature) =
@@ -7704,7 +7738,7 @@ impl Bank {
         self.loaded_programs_cache
             .write()
             .unwrap()
-            .replenish(program_id, Arc::new(builtin));
+            .assign_program(program_id, Arc::new(builtin));
         debug!("Added program {} under {:?}", name, program_id);
     }
 
