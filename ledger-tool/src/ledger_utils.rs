@@ -348,7 +348,7 @@ pub fn load_and_process_ledger(
     .map(|_| (bank_forks, starting_snapshot_hashes));
 
     exit.store(true, Ordering::Relaxed);
-    accounts_background_service.join().unwrap();
+    let _ = accounts_background_service.join();
     accounts_hash_verifier.join().unwrap();
     if let Some(service) = transaction_status_service {
         service.join().unwrap();
