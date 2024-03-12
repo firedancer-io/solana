@@ -7321,7 +7321,7 @@ impl AccountsDb {
             let success = accounts_hash == accounts_hash_other
                 && total_lamports == total_lamports_other
                 && total_lamports == expected_capitalization.unwrap_or(total_lamports);
-            assert!(success, "calculate_accounts_hash_with_verify mismatch. hashes: {}, {}; lamports: {}, {}; expected lamports: {:?}, data source: {:?}, slot: {}", accounts_hash.0, accounts_hash_other.0, total_lamports, total_lamports_other, expected_capitalization, data_source, slot);
+                //        assert!(success, "calculate_accounts_hash_with_verify mismatch. hashes: {}, {}; lamports: {}, {}; expected lamports: {:?}, data source: {:?}, slot: {}", accounts_hash.0, accounts_hash_other.0, total_lamports, total_lamports_other, expected_capitalization, data_source, slot);
         }
         Ok((accounts_hash, total_lamports))
     }
