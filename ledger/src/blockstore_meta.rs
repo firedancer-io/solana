@@ -108,8 +108,8 @@ mod serde_compat {
 /// Index recording presence/absence of shreds
 pub struct Index {
     pub slot: Slot,
-    data: ShredIndex,
-    coding: ShredIndex,
+    pub data: ShredIndex,
+    pub coding: ShredIndex,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]

@@ -1210,8 +1210,16 @@ impl Blockstore {
         let slot = shred.slot();
         let shred_index = u64::from(shred.index());
 
-        let index_meta_working_set_entry =
-            self.get_index_meta_entry(slot, index_working_set, index_meta_time_us);
+        let mut index_def = IndexMetaWorkingSetEntry {
+            index: Index::default(),
+            did_insert_occur: false,
+        };
+
+        let index_meta_working_set_entry = if !is_trusted {
+            self.get_index_meta_entry(slot, index_working_set, index_meta_time_us)
+        } else {
+            &mut index_def
+        };
 
         let index_meta = &mut index_meta_working_set_entry.index;
 
@@ -1387,8 +1395,17 @@ impl Blockstore {
         let slot = shred.slot();
         let shred_index = u64::from(shred.index());
 
-        let index_meta_working_set_entry =
-            self.get_index_meta_entry(slot, index_working_set, index_meta_time_us);
+        let mut index_def = IndexMetaWorkingSetEntry {
+            index: Index::default(),
+            did_insert_occur: false,
+        };
+
+        let index_meta_working_set_entry = if !is_trusted {
+            self.get_index_meta_entry(slot, index_working_set, index_meta_time_us)
+        } else {
+            &mut index_def
+        };
+
         let index_meta = &mut index_meta_working_set_entry.index;
         let slot_meta_entry = self.get_slot_meta_entry(
             slot_meta_working_set,
