@@ -857,10 +857,7 @@ pub fn authorize<S: std::hash::BuildHasher>(
             vote_state.set_new_authorized_voter(
                 authorized,
                 clock.epoch,
-                clock
-                    .leader_schedule_epoch
-                    .checked_add(1)
-                    .expect("epoch should be much less than u64::MAX"),
+                clock.leader_schedule_epoch.wrapping_add(1),
                 |epoch_authorized_voter| {
                     // current authorized withdrawer or authorized voter must say "yay"
                     if authorized_withdrawer_signer {
