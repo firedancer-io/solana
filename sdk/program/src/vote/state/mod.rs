@@ -787,7 +787,9 @@ impl VoteState {
             // 2) not be equal to latest epoch otherwise this
             //    function would have returned TooSoonToReauthorize error
             //    above
-            assert!(target_epoch > *latest_epoch);
+            if target_epoch <= *latest_epoch {
+                return Err(InstructionError::InvalidAccountData);
+            }
 
             // Commit the new state
             self.prior_voters.append((
