@@ -187,7 +187,10 @@ pub struct AccountsCache {
 impl AccountsCache {
     pub fn new_inner(&self) -> SlotCache {
         Arc::new(SlotCacheInner {
-            cache: DashMap::default(),
+            // FIREDANCER: The number of shards in the DashMap is very important
+            // for performance, we manually override it.
+            // cache: DashMap::default(),
+            cache: DashMap::with_shard_amount(8192),
             same_account_writes: AtomicU64::default(),
             same_account_writes_size: AtomicU64::default(),
             unique_account_writes_size: AtomicU64::default(),
