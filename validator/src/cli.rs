@@ -1412,6 +1412,13 @@ pub fn app<'a>(version: &'a str, default_args: &'a DefaultArgs) -> App<'a, 'a> {
                 .validator(is_parsable::<u16>)
                 .help("Port to use for receiving transactions in the TVU."),
         )
+        // FIREDANCER: Support for disabling the WAL.
+        .arg(
+            Arg::with_name("firedancer_disable_wal")
+                .long("firedancer-disable-wal")
+                .takes_value(false)
+                .help("Disable the write-ahead log."),
+        )
         .args(&get_deprecated_arguments())
         .after_help("The default subcommand is run")
         .subcommand(

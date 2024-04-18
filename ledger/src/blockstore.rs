@@ -4107,6 +4107,8 @@ pub fn create_new_ledger(
             recovery_mode: None,
             enforce_ulimit_nofile: false,
             column_options: column_options.clone(),
+            // FIREDANCER: Support disabling the WAL.
+            disable_wal: false,
         },
     )?;
     let ticks_per_slot = genesis_config.ticks_per_slot;
