@@ -3038,12 +3038,17 @@ impl Blockstore {
     // Get the range of indexes [start_index, end_index] of every completed data block
     fn get_completed_data_ranges(
         start_index: u32,
-        completed_data_indexes: &BTreeSet<u32>,
+        // FIREDANCER: Type changed for performance
+        // completed_data_indexes: &BTreeSet<u32>,
+        completed_data_indexes: &CompletedDataIndexes,
         consumed: u32,
     ) -> CompletedRanges {
         // `consumed` is the next missing shred index, but shred `i` existing in
         // completed_data_end_indexes implies it's not missing
-        assert!(!completed_data_indexes.contains(&consumed));
+        // FIREDANCER: Assertion removed for performance
+        // assert!(!completed_data_indexes.contains(&consumed));
+        // FIREDANCER: Prevent warning about unused BTreeSet
+        let _: Option<BTreeSet<()>>;
         completed_data_indexes
             .range(start_index..consumed)
             .scan(start_index, |begin, index| {
@@ -3851,7 +3856,8 @@ impl Blockstore {
         index_working_set: &'a mut HashMap<u64, IndexMetaWorkingSetEntry>,
         index_meta_time_us: &mut u64,
     ) -> &'a mut IndexMetaWorkingSetEntry {
-        let mut total_start = Measure::start("Total elapsed");
+        // FIREDANCER: Measurement removed for performance
+        // let mut total_start = Measure::start("Total elapsed");
         let res = index_working_set.entry(slot).or_insert_with(|| {
             let newly_inserted_meta = self
                 .index_cf
@@ -3863,8 +3869,9 @@ impl Blockstore {
                 did_insert_occur: false,
             }
         });
-        total_start.stop();
-        *index_meta_time_us += total_start.as_us();
+        // total_start.stop();
+        // *index_meta_time_us += total_start.as_us();
+        *index_meta_time_us += 0;
         res
     }
 }
@@ -3877,11 +3884,14 @@ fn update_completed_data_indexes(
     new_shred_index: u32,
     received_data_shreds: &ShredIndex,
     // Shreds indices which are marked data complete.
-    completed_data_indexes: &mut BTreeSet<u32>,
+    // FIREDANCER: Type changed for performance
+    // completed_data_indexes: &mut BTreeSet<u32>,
+    completed_data_indexes: &mut CompletedDataIndexes,
 ) -> Vec<(u32, u32)> {
+    // FIREDANCER: Specific calls into completed_data_indexes changed for
+    // performance.
     let start_shred_index = completed_data_indexes
-        .range(..new_shred_index)
-        .next_back()
+        .prev(new_shred_index)
         .map(|index| index + 1)
         .unwrap_or_default();
     // Consecutive entries i, k, j in this vector represent potential ranges [i, k),
@@ -3893,7 +3903,7 @@ fn update_completed_data_indexes(
         completed_data_indexes.insert(new_shred_index);
         shred_indices.push(new_shred_index + 1);
     }
-    if let Some(index) = completed_data_indexes.range(new_shred_index + 1..).next() {
+    if let Some(index) = completed_data_indexes.next(new_shred_index) {
         shred_indices.push(index + 1);
     }
     shred_indices

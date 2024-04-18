@@ -80,7 +80,120 @@ pub struct SlotMeta {
     pub connected_flags: ConnectedFlags,
     /// Shreds indices which are marked data complete.  That is, those that have the
     /// [`ShredFlags::DATA_COMPLETE_SHRED`][`crate::shred::ShredFlags::DATA_COMPLETE_SHRED`] set.
-    pub completed_data_indexes: BTreeSet<u32>,
+    /// FIREDANCER: Type changed for performance.
+    // pub completed_data_indexes: BTreeSet<u32>,
+    pub completed_data_indexes: CompletedDataIndexes,
+}
+
+/// FIREDANCER: We replace the completed_data_indexes implementation from a BTreeSet<u64> to
+/// a sorted Vec<u8> for performance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompletedDataIndexes {
+    index: Vec<u32>,
+}
+
+impl Default for CompletedDataIndexes {
+    fn default() -> Self {
+        Self {
+            index: Vec::with_capacity(4 * crate::blockstore::MAX_DATA_SHREDS_PER_SLOT),
+        }
+    }
+}
+
+impl Serialize for CompletedDataIndexes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let bytes = self.index.as_ptr() as *const u8;
+        let length = self.index.len() * std::mem::size_of::<u32>();
+        let slice = unsafe { std::slice::from_raw_parts(bytes, length) };
+        serde_bytes::Bytes::new(slice).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CompletedDataIndexes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bytes: &serde_bytes::Bytes = Deserialize::deserialize(deserializer)?;
+        let index: Vec<u32> = unsafe {
+            let aligned_bytes = std::alloc::alloc(std::alloc::Layout::array::<u32>(std::mem::size_of::<u32>() * 4 * crate::blockstore::MAX_DATA_SHREDS_PER_SLOT).unwrap());
+            std::ptr::copy_nonoverlapping(bytes.as_ref().as_ptr(), aligned_bytes, bytes.len());
+            Vec::from_raw_parts(aligned_bytes as *mut u32, bytes.len() / std::mem::size_of::<u32>(), 4 * crate::blockstore::MAX_DATA_SHREDS_PER_SLOT)
+        };
+
+        Ok(CompletedDataIndexes { index })
+    }
+}
+
+impl CompletedDataIndexes {
+    pub fn insert(&mut self, index: u32) {
+        if self.index.is_empty() || index > *self.index.last().unwrap() {
+            self.index.push(index);
+        } else {
+            let index = index as u32;
+            match self.index.binary_search(&index) {
+                Ok(_) => (),
+                Err(i) => self.index.insert(i, index),
+            }
+        }
+    }
+
+    pub fn prev(&self, index: u32) -> Option<u32> {
+        if index == 0 || self.index.is_empty() {
+            return None;
+        }
+
+        if index <= *self.index.first().unwrap() {
+            return None;
+        }
+
+        let pos = self.index.binary_search(&index).unwrap_or_else(|i| i);
+        Some(self.index[pos - 1])
+    }
+
+    pub fn next(&self, index: u32) -> Option<u32> {
+        if self.index.is_empty() || index >= *self.index.last().unwrap() {
+            return None;
+        }
+
+        let index = index + 1;
+        let pos = self.index.binary_search(&index).unwrap_or_else(|i| i);
+        if pos == self.index.len() {
+            None
+        } else {
+            Some(self.index[pos])
+        }
+    }
+
+    pub fn range<R>(&self, bounds: R) -> impl Iterator<Item = &u32> + '_
+    where
+        R: RangeBounds<u32>,
+    {
+        use std::ops::Bound;
+
+        let start = match bounds.start_bound() {
+            Bound::Included(&start) => start as usize,
+            Bound::Excluded(&start) => start as usize + 1,
+            Bound::Unbounded => 0,
+        };
+
+        let start = start as u32;
+        let start = self.index.binary_search(&start).unwrap_or_else(|i| i);
+
+        let end = match bounds.end_bound() {
+            Bound::Included(&end) => end as usize + 1,
+            Bound::Excluded(&end) => end as usize,
+            Bound::Unbounded => self.index.len(),
+        };
+
+        let end = end as u32;
+        let end = self.index.binary_search(&end).unwrap_or_else(|i| i);
+
+        (start..end).map(move |i| &self.index[i])
+    }
 }
 
 // Serde implementation of serialize and deserialize for Option<u64>
@@ -112,10 +225,25 @@ pub struct Index {
     coding: ShredIndex,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ShredIndex {
     /// Map representing presence/absence of shreds
-    index: BTreeSet<u64>,
+    /// FIREDANCER: The implementation of ShredIndex is rewritten from a BTreeSet<u64> to a Vec<u8>
+    /// for performance reasons. It lets us serialize / deserialize quickly and there is less memory
+    /// management overhead.
+    #[serde(with = "serde_bytes")]
+    index: Vec<u8>,
+    // index: BTreeSet<u64>,
+}
+
+impl Default for ShredIndex {
+    fn default() -> Self {
+        let mut vec = Vec::with_capacity(4 * crate::blockstore::MAX_DATA_SHREDS_PER_SLOT);
+        vec.resize(4 * crate::blockstore::MAX_DATA_SHREDS_PER_SLOT / 8, 0);
+        ShredIndex {
+            index: vec,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -214,24 +342,61 @@ impl Index {
     }
 }
 
+
+/// FIREDANCER: Implementation is changed for performance, see note above.
 impl ShredIndex {
     pub fn num_shreds(&self) -> usize {
-        self.index.len()
+        // Prevent warning about unused BTreeSet
+        let _: Option<BTreeSet<()>>;
+
+        let mut sum = 0;
+        for byte in self.index.iter() {
+            sum += byte.count_ones() as usize;
+        }
+        sum
     }
 
-    pub(crate) fn range<R>(&self, bounds: R) -> impl Iterator<Item = &u64>
+    pub(crate) fn range<R>(&self, bounds: R) -> impl Iterator<Item = u64> + '_
     where
         R: RangeBounds<u64>,
     {
-        self.index.range(bounds)
+        use std::ops::Bound;
+
+        let start = match bounds.start_bound() {
+            Bound::Included(&start) => start as usize,
+            Bound::Excluded(&start) => start as usize + 1,
+            Bound::Unbounded => 0,
+        };
+
+        let end = match bounds.end_bound() {
+            Bound::Included(&end) => end as usize + 1,
+            Bound::Excluded(&end) => end as usize,
+            Bound::Unbounded => self.index.len() * 8, // each u8 has 8 bits
+        };
+
+        (start..end).filter_map(move |i| {
+            let byte = self.index[i / 8];
+            let bit = (byte >> (i % 8)) & 1;
+            if bit == 1 {
+                Some(i as u64)
+            } else {
+                None
+            }
+        })
     }
 
     pub(crate) fn contains(&self, index: u64) -> bool {
-        self.index.contains(&index)
+        let bits = &self.index;
+        let byte = index / 8;
+        let bit = index % 8;
+        bits.get(byte as usize).map_or(false, |byte| byte & (1 << bit) != 0)
     }
 
     pub(crate) fn insert(&mut self, index: u64) {
-        self.index.insert(index);
+        let bits = &mut self.index;
+        let byte = index / 8;
+        let bit = index % 8;
+        bits[byte as usize] |= 1 << bit;
     }
 }
 
