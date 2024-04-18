@@ -1489,6 +1489,8 @@ where
             use_snapshot_archives_at_startup::cli::NAME,
             UseSnapshotArchivesAtStartup
         ),
+        // FIREDANCER: Support for disabling the WAL
+        disable_wal: matches.is_present("disable_wal"),
         ..ValidatorConfig::default()
     };
 

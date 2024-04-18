@@ -260,6 +260,8 @@ pub struct ValidatorConfig {
     pub block_production_method: BlockProductionMethod,
     pub generator_config: Option<GeneratorConfig>,
     pub use_snapshot_archives_at_startup: UseSnapshotArchivesAtStartup,
+    // FIREDANCER: Support disabling the WAL
+    pub disable_wal: bool,
 }
 
 impl Default for ValidatorConfig {
@@ -328,6 +330,8 @@ impl Default for ValidatorConfig {
             block_production_method: BlockProductionMethod::default(),
             generator_config: None,
             use_snapshot_archives_at_startup: UseSnapshotArchivesAtStartup::default(),
+            // FIREDANCER: Support disabling the WAL
+            disable_wal: false,
         }
     }
 }
@@ -1677,6 +1681,8 @@ fn blockstore_options_from_config(config: &ValidatorConfig) -> BlockstoreOptions
         recovery_mode: config.wal_recovery_mode.clone(),
         column_options: config.ledger_column_options.clone(),
         enforce_ulimit_nofile: config.enforce_ulimit_nofile,
+        // FIREDANCER: Support disabling the WAL
+        disable_wal: config.disable_wal,
         ..BlockstoreOptions::default()
     }
 }

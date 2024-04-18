@@ -12,6 +12,8 @@ pub struct BlockstoreOptions {
     // desired open file descriptor limit cannot be configured. Default: true.
     pub enforce_ulimit_nofile: bool,
     pub column_options: LedgerColumnOptions,
+    // FIREDANCER: Support disabling the WAL.
+    pub disable_wal: bool,
 }
 
 impl Default for BlockstoreOptions {
@@ -24,6 +26,8 @@ impl Default for BlockstoreOptions {
             recovery_mode: None,
             enforce_ulimit_nofile: true,
             column_options: LedgerColumnOptions::default(),
+            // FIREDANCER: Default to using the WAL.
+            disable_wal: false,
         }
     }
 }

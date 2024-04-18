@@ -376,6 +376,8 @@ struct Rocks {
     oldest_slot: OldestSlot,
     column_options: LedgerColumnOptions,
     write_batch_perf_status: PerfSamplingStatus,
+    // FIREDANCER: Support disabling the WAL
+    disable_wal: bool,
 }
 
 impl Rocks {
@@ -402,6 +404,8 @@ impl Rocks {
                 oldest_slot,
                 column_options,
                 write_batch_perf_status: PerfSamplingStatus::default(),
+                // FIREDANCER: Support disabling the WAL.
+                disable_wal: options.disable_wal,
             },
             AccessType::Secondary => {
                 let secondary_path = path.join("solana-secondary");
@@ -423,6 +427,8 @@ impl Rocks {
                     oldest_slot,
                     column_options,
                     write_batch_perf_status: PerfSamplingStatus::default(),
+                    // FIREDANCER: Support disabling the WAL.
+                    disable_wal: options.disable_wal,
                 }
             }
         };
@@ -683,7 +689,12 @@ impl Rocks {
             self.column_options.rocks_perf_sample_interval,
             &self.write_batch_perf_status,
         );
-        let result = self.db.write(batch);
+        // FIREDANCER: Support disabling the WAL
+        let result = if self.disable_wal {
+            self.db.write_without_wal(batch)
+        } else {
+            self.db.write(batch)
+        };
         if let Some(op_start_instant) = op_start_instant {
             report_rocksdb_write_perf(
                 PERF_METRIC_OP_NAME_WRITE_BATCH, // We use write_batch as cf_name for write batch.
