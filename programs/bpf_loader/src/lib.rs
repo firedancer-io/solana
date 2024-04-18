@@ -1544,6 +1544,8 @@ fn execute<'a, 'b: 'a>(
             *program_account.get_owner() == bpf_loader_deprecated::id(),
         )
     };
+    let slot = invoke_context.get_sysvar_cache().get_clock().unwrap().slot;
+
     #[cfg(any(target_os = "windows", not(target_arch = "x86_64")))]
     let use_jit = false;
     #[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
@@ -1598,7 +1600,7 @@ fn execute<'a, 'b: 'a>(
         execute_time = Measure::start("execute");
         let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);
         
-        if false {
+        if slot == 257037453 {
             let mut trace_buffer = Vec::new();
             let analysis = Analysis::from_executable(executable).unwrap();
             let log = vm.context_object_pointer.syscall_context
