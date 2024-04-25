@@ -11,6 +11,7 @@ use {
         sysvar_cache::SysvarCache,
         timings::{ExecuteDetailsTimings, ExecuteTimings},
     },
+    prost::Message,
     solana_measure::measure::Measure,
     solana_rbpf::{
         ebpf::MM_HEAP_START,
@@ -44,6 +45,10 @@ use {
         sync::{atomic::Ordering, Arc},
     },
 };
+
+pub mod proto {
+    include!(concat!(env!("OUT_DIR"), "/org.solana.sealevel.v1.rs"));
+}
 
 pub type BuiltinFunctionWithContext = BuiltinFunction<InvokeContext<'static>>;
 
@@ -749,6 +754,211 @@ pub fn mock_process_instruction<F: FnMut(&mut InvokeContext), G: FnMut(&mut Invo
     );
     invoke_context.programs_loaded_for_tx_batch = &programs_loaded_for_tx_batch;
     pre_adjustments(&mut invoke_context);
+
+    let mut keys = std::collections::HashSet::<Pubkey>::new();
+    for i in 0..invoke_context.transaction_context.get_number_of_accounts() {
+        assert!(!keys.contains(
+            invoke_context
+                .transaction_context
+                .get_key_of_account_at_index(i)
+                .unwrap()
+        ));
+        keys.insert(
+            *invoke_context
+                .transaction_context
+                .get_key_of_account_at_index(i)
+                .unwrap(),
+        );
+    }
+
+    fn add_account(accs: &mut Vec<proto::AcctState>, acctState: proto::AcctState) {
+        if accs
+            .iter()
+            .find(|a| a.address == acctState.address)
+            .is_none()
+        {
+            println!("Adding account {:?}", acctState.address);
+            accs.push(acctState);
+        }
+    }
+
+    {
+        // Capture inputs
+
+        let mut instr_ctx = proto::InstrContext {
+            program_id: invoke_context
+                .transaction_context
+                .get_key_of_account_at_index(*program_indices.last().unwrap())
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+            data: instruction_data.to_vec(),
+            cu_avail: invoke_context.get_compute_budget().compute_unit_limit,
+            epoch_context: Some(proto::EpochContext {
+                features: Some(proto::FeatureSet {
+                    features: invoke_context
+                        .feature_set
+                        .active
+                        .keys()
+                        .map(|f| u64::from_le_bytes(f.to_bytes()[..8].try_into().unwrap()))
+                        .collect(),
+                }),
+            }),
+            accounts: (0..invoke_context.transaction_context.get_number_of_accounts())
+                .into_iter()
+                .map(|i| {
+                    let account = invoke_context
+                        .transaction_context
+                        .get_account_at_index(i)
+                        .unwrap()
+                        .borrow();
+                    proto::AcctState {
+                        address: invoke_context
+                            .transaction_context
+                            .get_key_of_account_at_index(i)
+                            .unwrap()
+                            .to_bytes()
+                            .to_vec(),
+                        data: account.data().to_vec(),
+                        owner: account.owner().to_bytes().to_vec(),
+                        lamports: account.lamports(),
+                        executable: account.executable(),
+                        rent_epoch: account.rent_epoch(),
+                    }
+                })
+                .collect(),
+            instr_accounts: instruction_accounts
+                .iter()
+                .map(|ia| proto::InstrAcct {
+                    index: ia.index_in_callee as u32,
+                    is_signer: ia.is_signer,
+                    is_writable: ia.is_writable,
+                })
+                .collect(),
+            ..proto::InstrContext::default()
+        };
+
+        // Append sysvars
+        let sysvar_cache = invoke_context.get_sysvar_cache();
+        if let Ok(clock) = sysvar_cache.get_clock() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::clock::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&clock).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 100,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        if let Ok(epoch_schedule) = sysvar_cache.get_epoch_schedule() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::epoch_schedule::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&epoch_schedule).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        if let Ok(epoch_rewards) = sysvar_cache.get_epoch_rewards() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::epoch_rewards::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&epoch_rewards).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        #[allow(deprecated)]
+        if let Ok(fees) = sysvar_cache.get_fees() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::fees::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&fees).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        if let Ok(rent) = sysvar_cache.get_rent() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::rent::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&rent).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        if let Ok(slot_hashes) = sysvar_cache.get_slot_hashes() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::slot_hashes::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&slot_hashes).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        #[allow(deprecated)]
+        if let Ok(recent_blockhashes) = sysvar_cache.get_recent_blockhashes() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::recent_blockhashes::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&recent_blockhashes).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        if let Ok(stake_history) = sysvar_cache.get_stake_history() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::stake_history::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&stake_history).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+        if let Ok(last_restart_slot) = sysvar_cache.get_last_restart_slot() {
+            add_account(
+                &mut instr_ctx.accounts,
+                proto::AcctState {
+                    address: sysvar::last_restart_slot::id().to_bytes().to_vec(),
+                    data: bincode::serialize(&last_restart_slot).unwrap(),
+                    owner: sysvar::id().to_bytes().to_vec(),
+                    lamports: 0,
+                    ..proto::AcctState::default()
+                },
+            );
+        }
+
+        let proto_blob = instr_ctx.encode_to_vec();
+        let proto_hash = solana_sdk::hash::hash(&proto_blob);
+        let proto_hash_str = &hex::encode(&proto_hash).parse::<String>().unwrap()[..16];
+        let dump_path = std::env::var("DUMP_PATH").unwrap();
+        std::fs::create_dir_all(&dump_path).unwrap();
+        std::fs::write(format!("{}/{}.bin", dump_path, proto_hash_str), &proto_blob).unwrap();
+    }
+
     let result = invoke_context.process_instruction(
         instruction_data,
         &instruction_accounts,

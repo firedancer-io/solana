@@ -12,6 +12,7 @@ edition = { workspace = true }
 [dependencies]
 base64 = { workspace = true }
 bincode = { workspace = true }
+hex = { workspace = true }
 eager = { workspace = true }
 enum-iterator = { workspace = true }
 itertools = { workspace = true }
@@ -21,6 +22,8 @@ num-derive = { workspace = true }
 num-traits = { workspace = true }
 percentage = { workspace = true }
 rand = { workspace = true }
+prost = "0.11.9"
+prost-types = "0.11.9"
 solana-frozen-abi = { workspace = true }
 solana-frozen-abi-macro = { workspace = true }
 solana-measure = { workspace = true }
@@ -44,4 +47,5 @@ name = "solana_program_runtime"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [build-dependencies]
+prost-build = "0.11.9"
 rustc_version = { workspace = true }
