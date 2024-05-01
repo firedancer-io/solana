@@ -277,7 +277,7 @@ mod tests {
             Arc::default(),
         )
         .unwrap();
-        dbank.status_cache = Arc::new(RwLock::new(status_cache));
+        dbank.status_cache = Arc::new(status_cache);
         assert_eq!(dbank.get_balance(&key1.pubkey()), 0);
         assert_eq!(dbank.get_balance(&key2.pubkey()), 10);
         assert_eq!(dbank.get_balance(&key3.pubkey()), 0);

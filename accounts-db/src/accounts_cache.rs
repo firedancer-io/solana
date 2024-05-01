@@ -22,7 +22,7 @@ pub type SlotCache = Arc<SlotCacheInner>;
 
 #[derive(Debug)]
 pub struct SlotCacheInner {
-    cache: DashMap<Pubkey, CachedAccount>,
+    cache: DashMap<Pubkey, CachedAccount, ahash::RandomState>,
     same_account_writes: AtomicU64,
     same_account_writes_size: AtomicU64,
     unique_account_writes_size: AtomicU64,
@@ -132,7 +132,7 @@ impl SlotCacheInner {
 }
 
 impl Deref for SlotCacheInner {
-    type Target = DashMap<Pubkey, CachedAccount>;
+    type Target = DashMap<Pubkey, CachedAccount, ahash::RandomState>;
     fn deref(&self) -> &Self::Target {
         &self.cache
     }
@@ -176,7 +176,7 @@ impl CachedAccountInner {
 
 #[derive(Debug, Default)]
 pub struct AccountsCache {
-    cache: DashMap<Slot, SlotCache>,
+    cache: DashMap<Slot, SlotCache, ahash::RandomState>,
     // Queue of potentially unflushed roots. Random eviction + cache too large
     // could have triggered a flush of this slot already
     maybe_unflushed_roots: RwLock<BTreeSet<Slot>>,
@@ -190,7 +190,7 @@ impl AccountsCache {
             // FIREDANCER: The number of shards in the DashMap is very important
             // for performance, we manually override it.
             // cache: DashMap::default(),
-            cache: DashMap::with_shard_amount(8192),
+            cache: DashMap::with_hasher_and_shard_amount(ahash::RandomState::new(), 128),
             same_account_writes: AtomicU64::default(),
             same_account_writes_size: AtomicU64::default(),
             unique_account_writes_size: AtomicU64::default(),

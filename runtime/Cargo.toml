@@ -83,6 +83,10 @@ tempfile = { workspace = true }
 thiserror = { workspace = true }
 zstd = { workspace = true }
 
+# FIREDANCER: Use tinyvec for status_cache performance
+tinyvec = { workspace = true }
+ahash = { workspace = true }
+
 [lib]
 crate-type = ["lib"]
 name = "solana_runtime"

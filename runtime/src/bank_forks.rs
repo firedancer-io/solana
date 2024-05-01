@@ -363,7 +363,7 @@ impl BankForks {
                     // Save off the status cache because these may get pruned if another
                     // `set_root()` is called before the snapshots package can be generated
                     let status_cache_slot_deltas =
-                        bank.status_cache.read().unwrap().root_slot_deltas();
+                        bank.status_cache.root_slot_deltas();
                     if let Err(e) =
                         accounts_background_request_sender.send_snapshot_request(SnapshotRequest {
                             snapshot_root_bank: Arc::clone(bank),

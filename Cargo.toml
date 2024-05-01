@@ -181,7 +181,7 @@ curve25519-dalek = "3.2.1"
 # FIREDANCER: We switch to a newer version of dashmap so that we can
 # override the number of shards in the map for performance.
 # dashmap = "4.0.2"
-dashmap = "5.5.3"
+dashmap = { version = "5.5.3", features = ["serde"] }
 derivation-path = { version = "0.2.0", default-features = false }
 dialoguer = "0.10.4"
 digest = "0.10.7"
@@ -403,6 +403,8 @@ tempfile = "3.8.0"
 test-case = "3.2.1"
 thiserror = "1.0.49"
 tiny-bip39 = "0.8.2"
+# FIREDANCER: Use tinyvec for performance
+tinyvec = "1.6.0"
 # Update solana-tokio patch below when updating this version
 tokio = "1.29.1"
 tokio-serde = "0.8"

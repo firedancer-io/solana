@@ -364,7 +364,7 @@ fn test_concurrent_snapshot_packaging(
     // Take snapshot of zeroth bank
     let bank0 = bank_forks.read().unwrap().get(0).unwrap();
     let storages = bank0.get_snapshot_storages(None);
-    let slot_deltas = bank0.status_cache.read().unwrap().root_slot_deltas();
+    let slot_deltas = bank0.status_cache.root_slot_deltas();
     snapshot_bank_utils::add_bank_snapshot(
         bank_snapshots_dir,
         &bank0,
@@ -417,7 +417,7 @@ fn test_concurrent_snapshot_packaging(
         };
 
         let snapshot_storages = bank.get_snapshot_storages(None);
-        let slot_deltas = bank.status_cache.read().unwrap().root_slot_deltas();
+        let slot_deltas = bank.status_cache.root_slot_deltas();
         let bank_snapshot_info = snapshot_bank_utils::add_bank_snapshot(
             bank_snapshots_dir,
             &bank,
@@ -659,8 +659,6 @@ fn test_slots_to_snapshot(snapshot_version: SnapshotVersion, cluster_type: Clust
             .unwrap()
             .root_bank()
             .status_cache
-            .read()
-            .unwrap()
             .roots()
             .iter()
             .cloned()

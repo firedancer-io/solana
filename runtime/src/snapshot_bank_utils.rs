@@ -777,7 +777,7 @@ fn rebuild_bank_from_unarchived_snapshots(
 
     verify_slot_deltas(slot_deltas.as_slice(), &bank)?;
 
-    bank.status_cache.write().unwrap().append(&slot_deltas);
+    bank.status_cache.append(&slot_deltas);
 
     info!("Rebuilt bank for slot: {}", bank.slot());
     Ok(bank)
@@ -837,7 +837,7 @@ fn rebuild_bank_from_snapshot(
 
     verify_slot_deltas(slot_deltas.as_slice(), &bank)?;
 
-    bank.status_cache.write().unwrap().append(&slot_deltas);
+    bank.status_cache.append(&slot_deltas);
 
     info!("Rebuilt bank for slot: {}", bank.slot());
     Ok(bank)
@@ -987,7 +987,7 @@ pub fn bank_to_full_snapshot_archive(
 
     let temp_dir = tempfile::tempdir_in(bank_snapshots_dir)?;
     let snapshot_storages = bank.get_snapshot_storages(None);
-    let slot_deltas = bank.status_cache.read().unwrap().root_slot_deltas();
+    let slot_deltas = bank.status_cache.root_slot_deltas();
     let bank_snapshot_info = add_bank_snapshot(
         &temp_dir,
         bank,
@@ -1046,7 +1046,7 @@ pub fn bank_to_incremental_snapshot_archive(
 
     let temp_dir = tempfile::tempdir_in(bank_snapshots_dir)?;
     let snapshot_storages = bank.get_snapshot_storages(Some(full_snapshot_slot));
-    let slot_deltas = bank.status_cache.read().unwrap().root_slot_deltas();
+    let slot_deltas = bank.status_cache.root_slot_deltas();
     let bank_snapshot_info = add_bank_snapshot(
         &temp_dir,
         bank,
@@ -1226,7 +1226,7 @@ pub fn create_snapshot_dirs_for_tests(
         bank.update_accounts_hash(CalcAccountsHashDataSource::Storages, false, false);
 
         let snapshot_storages = bank.get_snapshot_storages(None);
-        let slot_deltas = bank.status_cache.read().unwrap().root_slot_deltas();
+        let slot_deltas = bank.status_cache.root_slot_deltas();
         let bank_snapshot_info = add_bank_snapshot(
             &bank_snapshots_dir,
             &bank,
@@ -1994,7 +1994,7 @@ mod tests {
 
         let snapshot_version = SnapshotVersion::default();
         let snapshot_storages = bank.get_snapshot_storages(None);
-        let slot_deltas = bank.status_cache.read().unwrap().root_slot_deltas();
+        let slot_deltas = bank.status_cache.root_slot_deltas();
         add_bank_snapshot(
             &bank_snapshots_dir,
             &bank,

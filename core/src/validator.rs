@@ -1556,7 +1556,7 @@ fn check_poh_speed(
     genesis_config: &GenesisConfig,
     maybe_hash_samples: Option<u64>,
 ) -> Result<(), String> {
-    if let Some(hashes_per_tick) = genesis_config.hashes_per_tick() {
+    /*if let Some(hashes_per_tick) = genesis_config.hashes_per_tick() {
         let ticks_per_slot = genesis_config.ticks_per_slot();
         let hashes_per_slot = hashes_per_tick * ticks_per_slot;
 
@@ -1579,7 +1579,7 @@ fn check_poh_speed(
                 "PoH is slower than cluster target tick rate! mine: {my_ns_per_slot} cluster: {target_ns_per_slot}.",
             ));
         }
-    }
+    }*/
     Ok(())
 }
 

@@ -9,9 +9,13 @@ use {
     },
     std::{
         collections::{hash_map::Entry, HashMap, HashSet},
-        sync::{Arc, Mutex},
+        ops::{Deref, DerefMut},
+        sync::{Arc, Mutex, RwLock, atomic::AtomicU64, atomic::Ordering},
     },
 };
+
+mod firedancer;
+use firedancer::*;
 
 pub const MAX_CACHE_ENTRIES: usize = MAX_RECENT_BLOCKHASHES;
 const CACHED_KEY_SIZE: usize = 20;
@@ -34,86 +38,97 @@ type SlotDeltaMap<T> = HashMap<Slot, Status<T>>;
 // construct a new one. Usually derived from a status cache's `SlotDeltaMap`
 pub type SlotDelta<T> = (Slot, bool, Status<T>);
 
-#[derive(Clone, Debug, AbiExample)]
-pub struct StatusCache<T: Serialize + Clone> {
-    cache: KeyStatusMap<T>,
+#[derive(Debug)]
+struct BlockHashCache<T> {
+    highest_slot: AtomicU64,
+    txns: TxnMap<([u8; 20], Slot, T)>,
+}
+
+impl<T: Clone> Default for BlockHashCache<T> {
+    fn default() -> Self {
+        Self {
+            highest_slot: AtomicU64::new(0),
+            txns: TxnMap::with_capacity_hasher(524288, |(txnhash, _, _)| {
+                usize::from_le_bytes(txnhash[0..8].try_into().unwrap())
+            }),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct SlotDeltaCache<T> {
+    blockhashes: RwLockBuckets<Hash, FiredancerVec<([u8;20], T)>, HashBits9>,
+}
+
+impl<T> Default for SlotDeltaCache<T> {
+    fn default() -> Self {
+        Self {
+            blockhashes: RwLockBuckets::new(0),
+        }
+    }
+}
+
+#[derive(Debug, AbiExample)]
+struct StatusCacheInner<T: Serialize + Clone> {
+    cache: RwLockBuckets<Hash, BlockHashCache<T>, HashBits9>,
     roots: HashSet<Slot>,
     /// all keys seen during a fork/slot
-    slot_deltas: SlotDeltaMap<T>,
+    slot_deltas: RwLockBuckets<Slot, SlotDeltaCache<T>, HashBits9>,
+}
+
+#[derive(Debug, AbiExample)]
+pub struct StatusCache<T: Serialize + Clone> {
+    inner: RwLock<StatusCacheInner<T>>,
 }
 
 impl<T: Serialize + Clone> Default for StatusCache<T> {
     fn default() -> Self {
         Self {
-            cache: HashMap::default(),
-            // 0 is always a root
-            roots: HashSet::from([0]),
-            slot_deltas: HashMap::default(),
+            inner: RwLock::new(StatusCacheInner {
+                cache: RwLockBuckets::new(0),
+                // 0 is always a root
+                roots: HashSet::from([0]),
+                slot_deltas: RwLockBuckets::new(0),
+            }),
         }
-    }
-}
-
-impl<T: Serialize + Clone + PartialEq> PartialEq for StatusCache<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.roots == other.roots
-            && self
-                .cache
-                .iter()
-                .all(|(hash, (slot, key_index, hash_map))| {
-                    if let Some((other_slot, other_key_index, other_hash_map)) =
-                        other.cache.get(hash)
-                    {
-                        if slot == other_slot && key_index == other_key_index {
-                            return hash_map.iter().all(|(slice, fork_map)| {
-                                if let Some(other_fork_map) = other_hash_map.get(slice) {
-                                    // all this work just to compare the highest forks in the fork map
-                                    // per entry
-                                    return fork_map.last() == other_fork_map.last();
-                                }
-                                false
-                            });
-                        }
-                    }
-                    false
-                })
     }
 }
 
 impl<T: Serialize + Clone> StatusCache<T> {
-    pub fn clear_slot_entries(&mut self, slot: Slot) {
-        let slot_deltas = self.slot_deltas.remove(&slot);
-        if let Some(slot_deltas) = slot_deltas {
-            let slot_deltas = slot_deltas.lock().unwrap();
-            for (blockhash, (_, key_list)) in slot_deltas.iter() {
-                // Any blockhash that exists in self.slot_deltas must also exist
-                // in self.cache, because in self.purge_roots(), when an entry
-                // (b, (max_slot, _, _)) is removed from self.cache, this implies
-                // all entries in self.slot_deltas < max_slot are also removed
-                if let Entry::Occupied(mut o_blockhash_entries) = self.cache.entry(*blockhash) {
-                    let (_, _, all_hash_maps) = o_blockhash_entries.get_mut();
-
-                    for (key_slice, _) in key_list {
-                        if let Entry::Occupied(mut o_key_list) = all_hash_maps.entry(*key_slice) {
-                            let key_list = o_key_list.get_mut();
-                            key_list.retain(|(updated_slot, _)| *updated_slot != slot);
-                            if key_list.is_empty() {
-                                o_key_list.remove_entry();
-                            }
-                        } else {
-                            panic!(
-                                "Map for key must exist if key exists in self.slot_deltas, slot: {slot}"
-                            )
-                        }
-                    }
-
-                    if all_hash_maps.is_empty() {
-                        o_blockhash_entries.remove_entry();
-                    }
-                } else {
-                    panic!("Blockhash must exist if it exists in self.slot_deltas, slot: {slot}")
-                }
-            }
-        }
+    pub fn clear_slot_entries(&self, slot: Slot) {
+        // let slot_deltas = self.slot_deltas.remove(&slot);
+        // if let Some(slot_deltas) = slot_deltas {
+        //     let slot_deltas = slot_deltas.lock().unwrap();
+        //     for (blockhash, (_, key_list)) in slot_deltas.iter() {
+        //         // Any blockhash that exists in self.slot_deltas must also exist
+        //         // in self.cache, because in self.purge_roots(), when an entry
+        //         // (b, (max_slot, _, _)) is removed from self.cache, this implies
+        //         // all entries in self.slot_deltas < max_slot are also removed
+        //         if let Entry::Occupied(mut o_blockhash_entries) = self.cache.entry(*blockhash) {
+        //             let (_, _, all_hash_maps) = o_blockhash_entries.get_mut();
+// 
+        //             for (key_slice, _) in key_list {
+        //                 if let Entry::Occupied(mut o_key_list) = all_hash_maps.entry(*key_slice) {
+        //                     let key_list = o_key_list.get_mut();
+        //                     key_list.retain(|(updated_slot, _)| *updated_slot != slot);
+        //                     if key_list.is_empty() {
+        //                         o_key_list.remove_entry();
+        //                     }
+        //                 } else {
+        //                     panic!(
+        //                         "Map for key must exist if key exists in self.slot_deltas, slot: {slot}"
+        //                     )
+        //                 }
+        //             }
+// 
+        //             if all_hash_maps.is_empty() {
+        //                 o_blockhash_entries.remove_entry();
+        //             }
+        //         } else {
+        //             panic!("Blockhash must exist if it exists in self.slot_deltas, slot: {slot}")
+        //         }
+        //     }
+        // }
     }
 
     /// Check if the key is in any of the forks in the ancestors set and
@@ -124,22 +139,65 @@ impl<T: Serialize + Clone> StatusCache<T> {
         transaction_blockhash: &Hash,
         ancestors: &Ancestors,
     ) -> Option<(Slot, T)> {
-        let map = self.cache.get(transaction_blockhash)?;
-        let (_, index, keymap) = map;
-        let max_key_index = key.as_ref().len().saturating_sub(CACHED_KEY_SIZE + 1);
-        let index = (*index).min(max_key_index);
-        let key_slice: &[u8; CACHED_KEY_SIZE] =
-            arrayref::array_ref![key.as_ref(), index, CACHED_KEY_SIZE];
-        if let Some(stored_forks) = keymap.get(key_slice) {
-            let res = stored_forks
-                .iter()
-                .find(|(f, _)| ancestors.contains_key(f) || self.roots.get(f).is_some())
-                .cloned();
-            if res.is_some() {
-                return res;
+        let inner = self.inner.read().unwrap();
+
+        let cache = match inner.cache.get(transaction_blockhash) {
+            None => return None,
+            Some(cache) => cache,
+        };
+
+        let txnhash = usize::from_le_bytes(key.as_ref()[0..8].try_into().unwrap());
+        cache.txns.find(txnhash, |(hash, slot, res)| {
+            if ancestors.contains_key(&slot) || inner.roots.contains(&slot) {
+                if &key.as_ref()[0..CACHED_KEY_SIZE] == hash {
+                    return true
+                }
+            }
+            false
+        }).map(|x| (x.1, x.2.clone()))
+    }
+
+    pub fn get_statuses<K: AsRef<[u8]>>(
+        &self,
+        items: &Vec<(&K, &Hash)>,
+        ancestors: &Ancestors,
+    ) -> Vec<Option<(Slot, T)>> {
+        let mut processed = vec![false; items.len()];
+        let mut result = vec![None; items.len()];
+
+        let inner = self.inner.read().unwrap();
+
+        for i in 0..items.len() {
+            if processed[i] {
+                continue;
+            }
+
+            let lock = match inner.cache.get(items[i].1) {
+                None => continue,
+                Some(cache) => cache,
+            };
+
+            for j in i..items.len() {
+                if processed[j] {
+                    continue;
+                }
+
+                if items[i].1 == items[j].1 {
+                    processed[j] = true;
+                    let txnhash = usize::from_le_bytes(items[j].0.as_ref()[0..8].try_into().unwrap());
+                    result[j] = lock.txns.find(txnhash, |(hash, slot, res)| {
+                        if ancestors.contains_key(&slot) || inner.roots.contains(&slot) {
+                            if &items[j].0.as_ref()[0..CACHED_KEY_SIZE] == hash {
+                                return true
+                            }
+                        }
+                        false
+                    }).map(|x| (x.1, x.2.clone()));
+                }
             }
         }
-        None
+
+        result
     }
 
     /// Search for a key with any blockhash
@@ -150,87 +208,156 @@ impl<T: Serialize + Clone> StatusCache<T> {
         key: K,
         ancestors: &Ancestors,
     ) -> Option<(Slot, T)> {
-        let keys: Vec<_> = self.cache.keys().copied().collect();
+        let inner = self.inner.read().unwrap();
 
-        for blockhash in keys.iter() {
-            trace!("get_status_any_blockhash: trying {}", blockhash);
-            let status = self.get_status(&key, blockhash, ancestors);
-            if status.is_some() {
-                return status;
+        let txnhash = usize::from_le_bytes(key.as_ref()[0..8].try_into().unwrap());
+
+        for blockhash_bucket in inner.cache.buckets() {
+            let lock = blockhash_bucket.read().unwrap();
+            for (_, cache) in lock.iter() {
+                if let Some(found) = cache.txns.find(txnhash, |(hash, slot, res)| {
+                    if ancestors.contains_key(&slot) || inner.roots.contains(&slot) {
+                        if &key.as_ref()[0..CACHED_KEY_SIZE] == hash {
+                            return true
+                        }
+                    }
+                    false
+                }).map(|x| (x.1, x.2.clone())) {
+                    return Some(found);
+                }
             }
         }
+
         None
+    }
+
+    fn add_root_inner(inner: &mut StatusCacheInner<T>, fork: Slot) {
+        inner.roots.insert(fork);
+        Self::purge_roots_inner(inner);
     }
 
     /// Add a known root fork.  Roots are always valid ancestors.
     /// After MAX_CACHE_ENTRIES, roots are removed, and any old keys are cleared.
-    pub fn add_root(&mut self, fork: Slot) {
-        self.roots.insert(fork);
-        self.purge_roots();
+    pub fn add_root(&self, fork: Slot) {
+        Self::add_root_inner(self.inner.write().unwrap().deref_mut(), fork);
     }
 
-    pub fn roots(&self) -> &HashSet<Slot> {
-        &self.roots
+    pub fn roots(&self) -> Vec<Slot> {
+        let inner = self.inner.read().unwrap();
+        inner.roots.iter().cloned().collect()
     }
 
     /// Insert a new key for a specific slot.
-    pub fn insert<K: AsRef<[u8]>>(
-        &mut self,
-        transaction_blockhash: &Hash,
-        key: K,
-        slot: Slot,
-        res: T,
-    ) {
-        let max_key_index = key.as_ref().len().saturating_sub(CACHED_KEY_SIZE + 1);
-        let hash_map = self.cache.entry(*transaction_blockhash).or_insert_with(|| {
-            let key_index = thread_rng().gen_range(0..max_key_index + 1);
-            (slot, key_index, HashMap::new())
-        });
+    fn insert_inner<K: AsRef<[u8]>>(inner: &StatusCacheInner<T>, transaction_blockhash: &Hash, key: K, slot: Slot, res: T) {
+        let txnhash = usize::from_le_bytes(key.as_ref()[0..8].try_into().unwrap());
 
-        hash_map.0 = std::cmp::max(slot, hash_map.0);
-        let key_index = hash_map.1.min(max_key_index);
-        let mut key_slice = [0u8; CACHED_KEY_SIZE];
-        key_slice.clone_from_slice(&key.as_ref()[key_index..key_index + CACHED_KEY_SIZE]);
-        self.insert_with_slice(transaction_blockhash, slot, key_index, key_slice, res);
+        let lock = inner.cache.ensure(transaction_blockhash, || BlockHashCache::default());
+        lock.highest_slot.fetch_max(slot, Ordering::Relaxed);
+        lock.txns.insert(txnhash, (key.as_ref().try_into().unwrap(), slot, res.clone()));
+        drop(lock);
+
+        let lock = inner.slot_deltas.ensure(&slot, || SlotDeltaCache::default());
+        let mut lock2 = lock.blockhashes.ensure_write(transaction_blockhash, || FiredancerVec::with_capacity(1));
+        lock2.push((key.as_ref().try_into().unwrap(), res));
     }
 
-    pub fn purge_roots(&mut self) {
-        if self.roots.len() > MAX_CACHE_ENTRIES {
-            if let Some(min) = self.roots.iter().min().cloned() {
-                self.roots.remove(&min);
-                self.cache.retain(|_, (fork, _, _)| *fork > min);
-                self.slot_deltas.retain(|slot, _| *slot > min);
+    pub fn insert<K: AsRef<[u8]>>(self, transaction_blockhash: &Hash, key: K, slot: Slot, res: T) {
+        let inner = self.inner.read().unwrap();
+        Self::insert_inner(inner.deref(), transaction_blockhash, key, slot, res);
+    }
+
+    pub fn insert_all(&self, items: Vec<(&Hash, [u8; 20], Slot, T)>) {
+        let mut processed1 = vec![false; items.len()];
+        let mut processed2 = vec![false; items.len()];
+
+        let inner = self.inner.read().unwrap();
+
+        for i in 0..items.len() {
+            if processed1[i] {
+                continue;
+            }
+
+            let lock = inner.cache.ensure(items[i].0, || BlockHashCache::default());
+            
+            for j in i..items.len() {
+                if processed1[j] {
+                    continue;
+                }
+
+                if items[i].0 == items[j].0 {
+                    processed1[j] = true;
+                    let txnhash = usize::from_le_bytes(items[j].1[0..8].try_into().unwrap());
+                    lock.highest_slot.fetch_max(items[j].2, Ordering::Relaxed);
+                    lock.txns.insert(txnhash, (items[j].1, items[j].2, items[j].3.clone()));
+                }
+            }
+        }
+
+        for i in 0..items.len() {
+            if processed2[i] {
+                continue;
+            }
+
+            let lock = inner.slot_deltas.ensure(&items[i].2, || SlotDeltaCache::default());
+            let mut lock2 = lock.blockhashes.ensure_write(items[i].0, || FiredancerVec::with_capacity(128));
+
+            for j in i..items.len() {
+                if processed2[j] {
+                    continue;
+                }
+
+                if items[i].0 == items[j].0 && items[i].2 == items[j].2{
+                    processed2[j] = true;
+                    let txnhash = usize::from_le_bytes(items[j].1[0..8].try_into().unwrap());
+                    lock2.push((items[j].1, items[j].3.clone()));
+                }
             }
         }
     }
 
-    /// Clear for testing
-    pub fn clear(&mut self) {
-        for v in self.cache.values_mut() {
-            v.2 = HashMap::new();
+    fn purge_roots_inner(inner: &mut StatusCacheInner<T>) {
+        if inner.roots.len() > MAX_CACHE_ENTRIES {
+            if let Some(min) = inner.roots.iter().min().cloned() {
+                inner.roots.remove(&min);
+                inner.cache.retain(|_, blockhash| blockhash.highest_slot.load(Ordering::Relaxed) > min);
+                inner.slot_deltas.retain(|slot, _| *slot > min);
+            }
         }
+    }
 
-        self.slot_deltas
-            .iter_mut()
-            .for_each(|(_, status)| status.lock().unwrap().clear());
+    pub fn purge_roots(&self) {
+        Self::purge_roots_inner(self.inner.write().unwrap().deref_mut());
+    }
+
+    /// Clear for testing
+    pub fn clear(&self) {
+        let mut inner = self.inner.write().unwrap();
+
+        inner.cache.reset();
+        inner.slot_deltas.reset()
     }
 
     /// Get the statuses for all the root slots
     pub fn root_slot_deltas(&self) -> Vec<SlotDelta<T>> {
-        self.roots()
-            .iter()
-            .map(|root| {
-                (
-                    *root,
-                    true, // <-- is_root
-                    self.slot_deltas.get(root).cloned().unwrap_or_default(),
-                )
-            })
-            .collect()
+        vec![]
+        //let inner = self.inner.write().unwrap();
+
+        //self.roots()
+        //    .iter()
+        //    .map(|root| {
+        //        (
+        //            *root,
+        //            true, // <-- is_root
+        //            inner.slot_deltas.get(root).cloned() read().unwrap().get(root).cloned().unwrap_or_default(),
+        //        )
+        //    })
+        //    .collect()
     }
 
     // replay deltas into a status_cache allows "appending" data
-    pub fn append(&mut self, slot_deltas: &[SlotDelta<T>]) {
+    pub fn append(&self, slot_deltas: &[SlotDelta<T>]) {
+        let mut inner = self.inner.write().unwrap();
+
         for (slot, is_root, statuses) in slot_deltas {
             statuses
                 .lock()
@@ -238,44 +365,21 @@ impl<T: Serialize + Clone> StatusCache<T> {
                 .iter()
                 .for_each(|(tx_hash, (key_index, statuses))| {
                     for (key_slice, res) in statuses.iter() {
-                        self.insert_with_slice(tx_hash, *slot, *key_index, *key_slice, res.clone())
+                        // TODO: Must preserve key_index ...
+                        Self::insert_inner(inner.deref(), tx_hash, key_slice, *slot, res.clone());
                     }
-                });
+            });
             if *is_root {
-                self.add_root(*slot);
+                Self::add_root_inner(inner.deref_mut(), *slot);
             }
         }
     }
 
     pub fn from_slot_deltas(slot_deltas: &[SlotDelta<T>]) -> Self {
         // play all deltas back into the status cache
-        let mut me = Self::default();
+        let me = Self::default();
         me.append(slot_deltas);
         me
-    }
-
-    fn insert_with_slice(
-        &mut self,
-        transaction_blockhash: &Hash,
-        slot: Slot,
-        key_index: usize,
-        key_slice: [u8; CACHED_KEY_SIZE],
-        res: T,
-    ) {
-        let hash_map =
-            self.cache
-                .entry(*transaction_blockhash)
-                .or_insert((slot, key_index, HashMap::new()));
-        hash_map.0 = std::cmp::max(slot, hash_map.0);
-
-        let forks = hash_map.2.entry(key_slice).or_default();
-        forks.push((slot, res.clone()));
-        let slot_deltas = self.slot_deltas.entry(slot).or_default();
-        let mut fork_entry = slot_deltas.lock().unwrap();
-        let (_, hash_entry) = fork_entry
-            .entry(*transaction_blockhash)
-            .or_insert((key_index, vec![]));
-        hash_entry.push((key_slice, res))
     }
 }
 

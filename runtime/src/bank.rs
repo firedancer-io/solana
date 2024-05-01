@@ -258,7 +258,8 @@ pub extern "C" fn fd_ext_bank_load_and_execute_txns( bank: *const std::ffi::c_vo
     let bank = unsafe { Arc::from_raw( bank as *const Bank ) };
 
     let lock_results = txns.iter().map(|_| Ok(()) ).collect::<Vec<_>>();
-    let batch = TransactionBatch::new(lock_results, bank.as_ref(), Cow::Borrowed(txns));
+    let mut batch = TransactionBatch::new(lock_results, bank.as_ref(), Cow::Borrowed(txns));
+    batch.set_needs_unlock(false);
 
     let mut timings = ExecuteTimings::default();
     let output = bank.load_and_execute_transactions(&batch, MAX_PROCESSING_AGE, false, false, false,
@@ -845,7 +846,7 @@ pub struct Bank {
     pub rc: BankRc,
 
     /// A cache of signature statuses
-    pub status_cache: Arc<RwLock<BankStatusCache>>,
+    pub status_cache: Arc<BankStatusCache>,
 
     /// FIFO queue of `recent_blockhash` items
     blockhash_queue: RwLock<BlockhashQueue>,
@@ -1195,7 +1196,7 @@ impl Bank {
         let mut bank = Self {
             incremental_snapshot_persistence: None,
             rc: BankRc::new(accounts, Slot::default()),
-            status_cache: Arc::<RwLock<BankStatusCache>>::default(),
+            status_cache: Arc::<BankStatusCache>::default(),
             blockhash_queue: RwLock::<BlockhashQueue>::default(),
             ancestors: Ancestors::default(),
             hash: RwLock::<Hash>::default(),
@@ -2245,17 +2246,18 @@ impl Bank {
     }
 
     pub fn status_cache_ancestors(&self) -> Vec<u64> {
-        let mut roots = self.status_cache.read().unwrap().roots().clone();
+        let mut roots = self.status_cache.roots();
         let min = roots.iter().min().cloned().unwrap_or(0);
         for ancestor in self.ancestors.keys() {
             if ancestor >= min {
-                roots.insert(ancestor);
+                roots.push(ancestor);
             }
         }
 
         let mut ancestors: Vec<_> = roots.into_iter().collect();
         #[allow(clippy::stable_sort_primitive)]
         ancestors.sort();
+        ancestors.dedup();
         ancestors
     }
 
@@ -4000,7 +4002,7 @@ impl Bank {
         let mut squash_cache_time = Measure::start("squash_cache_time");
         roots
             .iter()
-            .for_each(|slot| self.status_cache.write().unwrap().add_root(*slot));
+            .for_each(|slot| self.status_cache.add_root(*slot));
         squash_cache_time.stop();
 
         SquashTiming {
@@ -4344,11 +4346,11 @@ impl Bank {
 
     /// Forget all signatures. Useful for benchmarking.
     pub fn clear_signatures(&self) {
-        self.status_cache.write().unwrap().clear();
+        self.status_cache.clear();
     }
 
     pub fn clear_slot_signatures(&self, slot: Slot) {
-        self.status_cache.write().unwrap().clear_slot_entries(slot);
+        self.status_cache.clear_slot_entries(slot);
     }
 
     fn update_transaction_statuses(
@@ -4356,29 +4358,33 @@ impl Bank {
         sanitized_txs: &[SanitizedTransaction],
         execution_results: &[TransactionExecutionResult],
     ) {
-        let mut status_cache = self.status_cache.write().unwrap();
+        let mut inserts: Vec<(&Hash, [u8; 20], Slot, Result<()>)> = vec![];
+
         assert_eq!(sanitized_txs.len(), execution_results.len());
         for (tx, execution_result) in sanitized_txs.iter().zip(execution_results) {
             if let Some(details) = execution_result.details() {
                 // Add the message hash to the status cache to ensure that this message
                 // won't be processed again with a different signature.
-                status_cache.insert(
+                let bytes: [u8; 20] = tx.message_hash().as_ref()[0..20].try_into().unwrap();
+                inserts.push((
                     tx.message().recent_blockhash(),
-                    tx.message_hash(),
+                    bytes,
                     self.slot(),
                     details.status.clone(),
-                );
+                ));
                 // Add the transaction signature to the status cache so that transaction status
                 // can be queried by transaction signature over RPC. In the future, this should
                 // only be added for API nodes because voting validators don't need to do this.
-                status_cache.insert(
+                inserts.push((
                     tx.message().recent_blockhash(),
-                    tx.signature(),
+                    tx.signature().as_ref()[0..20].try_into().unwrap(),
                     self.slot(),
                     details.status.clone(),
-                );
+                ));
             }
         }
+
+        self.status_cache.insert_all(inserts);
     }
 
     /// Register a new recent blockhash in the bank's recent blockhash queue. Called when a bank
@@ -4693,11 +4699,10 @@ impl Bank {
     fn is_transaction_already_processed(
         &self,
         sanitized_tx: &SanitizedTransaction,
-        status_cache: &BankStatusCache,
     ) -> bool {
         let key = sanitized_tx.message_hash();
         let transaction_blockhash = sanitized_tx.message().recent_blockhash();
-        status_cache
+        self.status_cache
             .get_status(key, transaction_blockhash, &self.ancestors)
             .is_some()
     }
@@ -4708,13 +4713,26 @@ impl Bank {
         lock_results: Vec<TransactionCheckResult>,
         error_counters: &mut TransactionErrorMetrics,
     ) -> Vec<TransactionCheckResult> {
-        let rcache = self.status_cache.read().unwrap();
+        let prep: Vec<(&Hash, &Hash)> = sanitized_txs
+            .iter()
+            .map(|tx| (tx.message_hash(), tx.message().recent_blockhash()))
+            .collect();
+
+        let already_processed = self
+            .status_cache
+            .get_statuses(&prep, &self.ancestors);
+
+        let already_processed_iter = already_processed
+            .iter()
+            .map(|x| x.is_some());
+
         sanitized_txs
             .iter()
             .zip(lock_results)
-            .map(|(sanitized_tx, (lock_result, nonce))| {
+            .zip(already_processed_iter)
+            .map(|((sanitized_tx, (lock_result, nonce)), already_processed)| {
                 if lock_result.is_ok()
-                    && self.is_transaction_already_processed(sanitized_tx, &rcache)
+                    && already_processed
                 {
                     error_counters.already_processed += 1;
                     return (Err(TransactionError::AlreadyProcessed), None);
@@ -7123,15 +7141,13 @@ impl Bank {
         signature: &Signature,
         blockhash: &Hash,
     ) -> Option<Result<()>> {
-        let rcache = self.status_cache.read().unwrap();
-        rcache
+        self.status_cache
             .get_status(signature, blockhash, &self.ancestors)
             .map(|v| v.1)
     }
 
     pub fn get_signature_status_slot(&self, signature: &Signature) -> Option<(Slot, Result<()>)> {
-        let rcache = self.status_cache.read().unwrap();
-        rcache.get_status_any_blockhash(signature, &self.ancestors)
+        self.status_cache.get_status_any_blockhash(signature, &self.ancestors)
     }
 
     pub fn get_signature_status(&self, signature: &Signature) -> Option<Result<()>> {
