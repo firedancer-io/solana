@@ -970,14 +970,16 @@ lazy_static! {
 /// `FeatureSet` holds the set of currently active/inactive runtime features
 #[derive(AbiExample, Debug, Clone, Eq, PartialEq)]
 pub struct FeatureSet {
-    pub active: HashMap<Pubkey, Slot>,
+    // FIREDANCER: Switch to ahash for performance
+    pub active: HashMap<Pubkey, Slot, ahash::RandomState>,
     pub inactive: HashSet<Pubkey>,
 }
 impl Default for FeatureSet {
     fn default() -> Self {
         // All features disabled
         Self {
-            active: HashMap::new(),
+            // FIREDANCER: Switch to ahash for performance
+            active: HashMap::with_hasher(ahash::RandomState::new()),
             inactive: FEATURE_NAMES.keys().cloned().collect(),
         }
     }

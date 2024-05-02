@@ -83,6 +83,9 @@ tempfile = { workspace = true }
 thiserror = { workspace = true }
 zstd = { workspace = true }
 
+# FIREDANCER: Switch to ahash for performance
+ahash = { workspace = true }
+
 [lib]
 crate-type = ["lib"]
 name = "solana_runtime"

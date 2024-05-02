@@ -19,16 +19,17 @@ const CACHED_KEY_SIZE: usize = 20;
 // Store forks in a single chunk of memory to avoid another lookup.
 pub type ForkStatus<T> = Vec<(Slot, T)>;
 type KeySlice = [u8; CACHED_KEY_SIZE];
-type KeyMap<T> = HashMap<KeySlice, ForkStatus<T>>;
+// FIREDANCER: Switch to ahash for performance
+type KeyMap<T> = HashMap<KeySlice, ForkStatus<T>, ahash::RandomState>;
 // Map of Hash and status
-pub type Status<T> = Arc<Mutex<HashMap<Hash, (usize, Vec<(KeySlice, T)>)>>>;
+pub type Status<T> = Arc<Mutex<HashMap<Hash, (usize, Vec<(KeySlice, T)>), ahash::RandomState>>>;
 // A Map of hash + the highest fork it's been observed on along with
 // the key offset and a Map of the key slice + Fork status for that key
-type KeyStatusMap<T> = HashMap<Hash, (Slot, usize, KeyMap<T>)>;
+type KeyStatusMap<T> = HashMap<Hash, (Slot, usize, KeyMap<T>), ahash::RandomState>;
 
 // A map of keys recorded in each fork; used to serialize for snapshots easily.
 // Doesn't store a `SlotDelta` in it because the bool `root` is usually set much later
-type SlotDeltaMap<T> = HashMap<Slot, Status<T>>;
+type SlotDeltaMap<T> = HashMap<Slot, Status<T>, ahash::RandomState>;
 
 // The statuses added during a slot, can be used to build on top of a status cache or to
 // construct a new one. Usually derived from a status cache's `SlotDeltaMap`
@@ -184,7 +185,8 @@ impl<T: Serialize + Clone> StatusCache<T> {
         let max_key_index = key.as_ref().len().saturating_sub(CACHED_KEY_SIZE + 1);
         let hash_map = self.cache.entry(*transaction_blockhash).or_insert_with(|| {
             let key_index = thread_rng().gen_range(0..max_key_index + 1);
-            (slot, key_index, HashMap::new())
+            // FIREDANCER: Switch to ahash for performance
+            (slot, key_index, HashMap::with_hasher(ahash::RandomState::new()))
         });
 
         hash_map.0 = std::cmp::max(slot, hash_map.0);
@@ -207,7 +209,8 @@ impl<T: Serialize + Clone> StatusCache<T> {
     /// Clear for testing
     pub fn clear(&mut self) {
         for v in self.cache.values_mut() {
-            v.2 = HashMap::new();
+            // FIREDANCER: Switch to ahash for performance
+            v.2 = HashMap::with_hasher(ahash::RandomState::new());
         }
 
         self.slot_deltas
@@ -262,10 +265,11 @@ impl<T: Serialize + Clone> StatusCache<T> {
         key_slice: [u8; CACHED_KEY_SIZE],
         res: T,
     ) {
+        // FIREDANCER: Switch to ahash for performance
         let hash_map =
             self.cache
                 .entry(*transaction_blockhash)
-                .or_insert((slot, key_index, HashMap::new()));
+                .or_insert((slot, key_index, HashMap::with_hasher(ahash::RandomState::new())));
         hash_map.0 = std::cmp::max(slot, hash_map.0);
 
         let forks = hash_map.2.entry(key_slice).or_default();
