@@ -1047,11 +1047,7 @@ fn assert_capitalization(bank: &Bank) {
 
 /// Get the AccessType required, based on `process_options`
 fn get_access_type(process_options: &ProcessOptions) -> AccessType {
-    match process_options.use_snapshot_archives_at_startup {
-        UseSnapshotArchivesAtStartup::Always => AccessType::Secondary,
-        UseSnapshotArchivesAtStartup::Never => AccessType::PrimaryForMaintenance,
-        UseSnapshotArchivesAtStartup::WhenNewest => AccessType::PrimaryForMaintenance,
-    }
+    AccessType::PrimaryForMaintenance
 }
 
 #[cfg(not(target_env = "msvc"))]
