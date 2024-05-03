@@ -4356,6 +4356,7 @@ impl Bank {
         sanitized_txs: &[SanitizedTransaction],
         execution_results: &[TransactionExecutionResult],
     ) {
+        /*
         let mut status_cache = self.status_cache.write().unwrap();
         assert_eq!(sanitized_txs.len(), execution_results.len());
         for (tx, execution_result) in sanitized_txs.iter().zip(execution_results) {
@@ -4379,6 +4380,7 @@ impl Bank {
                 );
             }
         }
+        */
     }
 
     /// Register a new recent blockhash in the bank's recent blockhash queue. Called when a bank

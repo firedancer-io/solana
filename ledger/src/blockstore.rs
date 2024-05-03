@@ -213,7 +213,7 @@ pub struct Blockstore {
     optimistic_slots_cf: LedgerColumn<cf::OptimisticSlots>,
     merkle_root_meta_cf: LedgerColumn<cf::MerkleRootMeta>,
     last_root: RwLock<Slot>,
-    insert_shreds_lock: Mutex<()>,
+    insert_shreds_lock: Mutex<Option<IndexMetaWorkingSetEntry>>,
     new_shreds_signals: Mutex<Vec<Sender<bool>>>,
     completed_slots_senders: Mutex<Vec<CompletedSlotsSender>>,
     pub shred_timing_point_sender: Option<PohTimingSender>,
@@ -414,7 +414,7 @@ impl Blockstore {
             new_shreds_signals: Mutex::default(),
             completed_slots_senders: Mutex::default(),
             shred_timing_point_sender: None,
-            insert_shreds_lock: Mutex::<()>::default(),
+            insert_shreds_lock: Mutex::<Option<IndexMetaWorkingSetEntry>>::default(),
             last_root,
             lowest_cleanup_slot: RwLock::<Slot>::default(),
             slots_stats: SlotsStats::default(),
@@ -893,7 +893,7 @@ impl Blockstore {
         assert_eq!(shreds.len(), is_repaired.len());
         let mut total_start = Measure::start("Total elapsed");
         let mut start = Measure::start("Blockstore lock");
-        let _lock = self.insert_shreds_lock.lock().unwrap();
+        let mut lock = self.insert_shreds_lock.lock().unwrap();
         start.stop();
         metrics.insert_lock_elapsed_us += start.as_us();
 
@@ -904,6 +904,12 @@ impl Blockstore {
         let mut slot_meta_working_set = HashMap::new();
         let mut index_working_set = HashMap::new();
         let mut duplicate_shreds = vec![];
+
+        let maybe_cache_slot = shreds.last().map(|x| x.slot()).unwrap_or(0);
+        if let Some(mut index_cached) = lock.take() {
+            index_cached.did_insert_occur = false;
+            index_working_set.insert(index_cached.index.slot, index_cached);
+        }
 
         metrics.num_shreds += shreds.len();
         let mut start = Measure::start("Shred insertion");
@@ -1092,6 +1098,10 @@ impl Blockstore {
 
         metrics.total_elapsed_us += total_start.as_us();
         metrics.index_meta_time_us += index_meta_time_us;
+
+        if let Some(cache_index) = index_working_set.remove(&maybe_cache_slot) {
+            *lock = Some(cache_index);
+        }
 
         Ok(InsertResults {
             completed_data_set_infos: newly_completed_data_sets,
