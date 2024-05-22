@@ -196,18 +196,23 @@ impl BigTableConnection {
                 http.enforce_http(false);
                 http.set_nodelay(true);
                 let channel = match std::env::var("BIGTABLE_PROXY") {
-                    Ok(proxy_uri) => {
-                        let proxy = hyper_proxy::Proxy::new(
-                            hyper_proxy::Intercept::All,
-                            proxy_uri
-                                .parse::<http::Uri>()
-                                .map_err(|err| Error::InvalidUri(proxy_uri, err.to_string()))?,
-                        );
-                        let mut proxy_connector =
-                            hyper_proxy::ProxyConnector::from_proxy(http, proxy)?;
-                        // tonic handles TLS as a separate layer
-                        proxy_connector.set_tls(None);
-                        endpoint.connect_with_connector_lazy(proxy_connector)
+                    Ok(_proxy_uri) => {
+                        // FIREDANCER: We don't incldue goauth, hyper-proxy, or smpl_jwt since they
+                        // use OpenSSL and this would cause symbol conflicts with the OpenSSL version
+                        // that firedancer is using.
+                        //
+                        // let proxy = hyper_proxy::Proxy::new(
+                        //     hyper_proxy::Intercept::All,
+                        //     proxy_uri
+                        //         .parse::<http::Uri>()
+                        //         .map_err(|err| Error::InvalidUri(proxy_uri, err.to_string()))?,
+                        // );
+                        // let mut proxy_connector =
+                        //     hyper_proxy::ProxyConnector::from_proxy(http, proxy)?;
+                        // // tonic handles TLS as a separate layer
+                        // proxy_connector.set_tls(None);
+                        // endpoint.connect_with_connector_lazy(proxy_connector)
+                        unimplemented!();
                     }
                     _ => endpoint.connect_with_connector_lazy(http),
                 };
