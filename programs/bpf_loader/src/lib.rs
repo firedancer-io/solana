@@ -1598,9 +1598,9 @@ fn execute<'a, 'b: 'a>(
         create_vm_time.stop();
 
         execute_time = Measure::start("execute");
-        let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);
+        let (compute_units_consumed, result) = vm.execute_program(executable, true);
         
-        if slot == 257037453 {
+        if slot == 265330432 {
             let mut trace_buffer = Vec::new();
             let analysis = Analysis::from_executable(executable).unwrap();
             let log = vm.context_object_pointer.syscall_context
@@ -1615,8 +1615,7 @@ fn execute<'a, 'b: 'a>(
         }
         
         drop(vm);
-        ic_logger_msg!(
-            log_collector,
+        log::info!(
             "Program {} consumed {} of {} compute units",
             &program_id,
             compute_units_consumed,

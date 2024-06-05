@@ -327,6 +327,9 @@ impl<'a, 'b> CallerAccount<'a, 'b> {
             invoke_context.get_check_aligned(),
         )?;
 
+        log::info!("FROM SOL ACCT INFO {:?}", account_info.data_len
+                                                          .checked_div(invoke_context.get_compute_budget().cpi_bytes_per_unit)
+                                                          .unwrap_or(u64::MAX) );
         consume_compute_meter(
             invoke_context,
             account_info
@@ -528,7 +531,7 @@ impl SyscallInvokeSigned for SyscallInvokeSignedRust {
         if invoke_context
             .feature_set
             .is_active(&feature_set::loosen_cpi_size_restriction::id())
-        {
+        {   log::info!("TRANSLATING INSTRUCTION {:?}",(ix_data_len).checked_div(invoke_context.get_compute_budget().cpi_bytes_per_unit) );
             consume_compute_meter(
                 invoke_context,
                 (ix_data_len)
@@ -1203,6 +1206,7 @@ fn cpi_common<S: SyscallInvokeSigned>(
         invoke_context,
         invoke_context.get_compute_budget().invoke_units,
     )?;
+    log::info!("COMPUTE AT ENTRY POINT {:?}", invoke_context.get_compute_budget().invoke_units); 
 
     let instruction = S::translate_instruction(instruction_addr, memory_mapping, invoke_context)?;
     let transaction_context = &invoke_context.transaction_context;

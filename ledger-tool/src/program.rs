@@ -306,7 +306,7 @@ impl<'a, 'b> LazyAnalysis<'a, 'b> {
 
 fn output_trace(
     matches: &ArgMatches<'_>,
-    trace: &[[u64; 12]],
+    trace: &[[u64; 14]],
     frame: usize,
     analysis: &mut LazyAnalysis,
 ) {

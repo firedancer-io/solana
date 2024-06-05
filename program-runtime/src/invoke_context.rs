@@ -91,7 +91,7 @@ macro_rules! declare_process_instruction {
 }
 
 impl<'a> ContextObject for InvokeContext<'a> {
-    fn trace(&mut self, state: [u64; 12]) {
+    fn trace(&mut self, state: [u64; 14]) {
         self.syscall_context
             .last_mut()
             .unwrap()
@@ -152,7 +152,7 @@ impl BpfAllocator {
 pub struct SyscallContext {
     pub allocator: BpfAllocator,
     pub accounts_metadata: Vec<SerializedAccountMetadata>,
-    pub trace_log: Vec<[u64; 12]>,
+    pub trace_log: Vec<[u64; 14]>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,7 +182,7 @@ pub struct InvokeContext<'a> {
     pub blockhash: Hash,
     pub lamports_per_signature: u64,
     pub syscall_context: Vec<Option<SyscallContext>>,
-    traces: Vec<Vec<[u64; 12]>>,
+    traces: Vec<Vec<[u64; 14]>>,
 }
 
 impl<'a> InvokeContext<'a> {
@@ -917,7 +917,7 @@ impl<'a> InvokeContext<'a> {
     }
 
     /// Return a references to traces
-    pub fn get_traces(&self) -> &Vec<Vec<[u64; 12]>> {
+    pub fn get_traces(&self) -> &Vec<Vec<[u64; 14]>> {
         &self.traces
     }
 }
