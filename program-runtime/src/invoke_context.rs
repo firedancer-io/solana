@@ -688,11 +688,14 @@ impl<'a> InvokeContext<'a> {
             );
             verify_caller_result?;
         }
+        log::info!("COMPUTE UNITS CONSUMED ATP (DATA={:?}) CUS={}", instruction_data, *compute_units_consumed);
 
         self.transaction_context
             .get_next_instruction_context()?
             .configure(program_indices, instruction_accounts, instruction_data);
         self.push()?;
+
+        log::info!("COMPUTE UNITS CONSUMED ATP 2 (DATA={:?}) CUS={}", instruction_data, *compute_units_consumed);
         self.process_executable_chain(compute_units_consumed, timings)
             .and_then(|_| {
                 if self
@@ -732,6 +735,8 @@ impl<'a> InvokeContext<'a> {
     ) -> Result<(), InstructionError> {
         let instruction_context = self.transaction_context.get_current_instruction_context()?;
         let mut process_executable_chain_time = Measure::start("process_executable_chain_time");
+        let start = self.get_remaining();
+        log::info!("ENTERING HERE {}", start);
 
         let builtin_id = {
             let borrowed_root_account = instruction_context
@@ -767,6 +772,7 @@ impl<'a> InvokeContext<'a> {
         let logger = self.get_log_collector();
         stable_log::program_invoke(&logger, &program_id, self.get_stack_height());
         let pre_remaining_units = self.get_remaining();
+        log::info!("pre_remaining_units={} (START={})", pre_remaining_units, start);
         // In program-runtime v2 we will create this VM instance only once per transaction.
         // `program_runtime_environment_v2.get_config()` will be used instead of `mock_config`.
         // For now, only built-ins are invoked from here, so the VM and its Config are irrelevant.
@@ -784,6 +790,7 @@ impl<'a> InvokeContext<'a> {
             empty_memory_mapping,
             0,
         );
+        log::info!("RIGHT BEFORE INVOKATION={} (START={})", pre_remaining_units, start);
         vm.invoke_function(function);
         let result = match vm.program_result {
             ProgramResult::Ok(_) => {
@@ -861,6 +868,10 @@ impl<'a> InvokeContext<'a> {
     /// Get this invocation's compute budget
     pub fn get_compute_budget(&self) -> &ComputeBudget {
         &self.current_compute_budget
+    }
+
+    pub fn get_remaining_cus(&self) ->u64 {
+        *self.compute_meter.borrow()
     }
 
     /// Get cached sysvars

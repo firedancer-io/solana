@@ -1202,13 +1202,16 @@ fn cpi_common<S: SyscallInvokeSigned>(
     //
     // Translate the inputs to the syscall and synchronize the caller's account
     // changes so the callee can see them.
+    let start_cus = invoke_context.get_remaining_cus();
+    log::info!("ENTERING CPI {:?}", start_cus );
     consume_compute_meter(
         invoke_context,
         invoke_context.get_compute_budget().invoke_units,
     )?;
-    log::info!("COMPUTE AT ENTRY POINT {:?}", invoke_context.get_compute_budget().invoke_units); 
+    log::info!("INVOKE UNITS (START={}) CURRENT={}", start_cus, invoke_context.get_remaining_cus());
 
     let instruction = S::translate_instruction(instruction_addr, memory_mapping, invoke_context)?;
+    log::info!("TRANSLATED INSN (START={}) CURRENT={}", start_cus, invoke_context.get_remaining_cus());
     let transaction_context = &invoke_context.transaction_context;
     let instruction_context = transaction_context.get_current_instruction_context()?;
     let caller_program_id = instruction_context.get_last_program_key(transaction_context)?;
@@ -1219,6 +1222,7 @@ fn cpi_common<S: SyscallInvokeSigned>(
         memory_mapping,
         invoke_context,
     )?;
+    log::info!("TRANSLATE SINGERS (START={}) CURRENT={}", start_cus, invoke_context.get_remaining_cus());
     let is_loader_deprecated = *instruction_context
         .try_borrow_last_program_account(transaction_context)?
         .get_owner()
@@ -1236,6 +1240,7 @@ fn cpi_common<S: SyscallInvokeSigned>(
         memory_mapping,
         invoke_context,
     )?;
+    log::info!("TRANSLATE ACCOUNTS (START={}) CURRENT={} DATA {:?} ", start_cus, invoke_context.get_remaining_cus(), &instruction.data);
 
     // Process the callee instruction
     let mut compute_units_consumed = 0;
@@ -1246,6 +1251,9 @@ fn cpi_common<S: SyscallInvokeSigned>(
         &mut compute_units_consumed,
         &mut ExecuteTimings::default(),
     )?;
+    log::info!("AFTER EXECUTION CONSUMPTION (START={}) CURRENT={} {}", start_cus, invoke_context.get_remaining_cus(), compute_units_consumed);
+
+    //log::info!("compute_units_consumed {:?}", compute_units_consumed);
 
     // re-bind to please the borrow checker
     let transaction_context = &invoke_context.transaction_context;

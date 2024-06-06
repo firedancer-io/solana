@@ -292,11 +292,13 @@ macro_rules! create_vm {
         let round_up_heap_size = invoke_context
             .feature_set
             .is_active(&solana_sdk::feature_set::round_up_heap_size::id());
+        log::info!("BEFORE HEAP CONSUME {}", invoke_context.get_remaining_cus());
         let mut heap_cost_result = invoke_context.consume_checked($crate::calculate_heap_cost(
             heap_size,
             invoke_context.get_compute_budget().heap_cost,
             round_up_heap_size,
         ));
+        log::info!("AFTER HEAP CONSUME {}", invoke_context.get_remaining_cus());
         if !round_up_heap_size {
             heap_cost_result = Ok(());
         }
@@ -1530,6 +1532,7 @@ fn execute<'a, 'b: 'a>(
     executable: &'a Executable<InvokeContext<'static>>,
     invoke_context: &'a mut InvokeContext<'b>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    log::info!("EXECUTING THE BPF HERE {}", invoke_context.get_remaining_cus());
     // We dropped the lifetime tracking in the Executor by setting it to 'static,
     // thus we need to reintroduce the correct lifetime of InvokeContext here again.
     let executable = unsafe { mem::transmute::<_, &'a Executable<InvokeContext<'b>>>(executable) };
@@ -1582,6 +1585,7 @@ fn execute<'a, 'b: 'a>(
         })
         .collect::<Vec<_>>();
 
+    log::info!("EXECUTING THE BPF HERE RIGHT BEFORE {}", invoke_context.get_remaining_cus());
     let mut create_vm_time = Measure::start("create_vm");
     let mut execute_time;
     let execution_result = {
@@ -1599,8 +1603,9 @@ fn execute<'a, 'b: 'a>(
 
         execute_time = Measure::start("execute");
         let (compute_units_consumed, result) = vm.execute_program(executable, true);
-        
-        if slot == 265330432 {
+
+        /* TRACING HERE */
+        if slot == 265330432111 {
             let mut trace_buffer = Vec::new();
             let analysis = Analysis::from_executable(executable).unwrap();
             let log = vm.context_object_pointer.syscall_context
