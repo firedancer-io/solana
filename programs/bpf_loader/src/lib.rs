@@ -1546,10 +1546,10 @@ fn execute<'a, 'b: 'a>(
     };
     let slot = invoke_context.get_sysvar_cache().get_clock().unwrap().slot;
 
-    #[cfg(any(target_os = "windows", not(target_arch = "x86_64")))]
-    let use_jit = false;
-    #[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
-    let use_jit = executable.get_compiled_program().is_some();
+    //#[cfg(any(target_os = "windows", not(target_arch = "x86_64")))]
+    //let use_jit = false;
+    //#[cfg(all(not(target_os = "windows"), target_arch = "x86_64"))]
+    //let use_jit = executable.get_compiled_program().is_some();
     let direct_mapping = invoke_context
         .feature_set
         .is_active(&bpf_account_data_direct_mapping::id());
@@ -1598,7 +1598,7 @@ fn execute<'a, 'b: 'a>(
         create_vm_time.stop();
 
         execute_time = Measure::start("execute");
-        let (compute_units_consumed, result) = vm.execute_program(executable, !use_jit);
+        let (compute_units_consumed, result) = vm.execute_program(executable, true);
         
         if slot == 257037453 {
             let mut trace_buffer = Vec::new();
