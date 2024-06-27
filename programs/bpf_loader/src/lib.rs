@@ -4,6 +4,7 @@
 use std::str::FromStr;
 
 use solana_rbpf::static_analysis::Analysis;
+use solana_sdk::signature::Signature;
 
 pub mod serialization;
 pub mod syscalls;
@@ -1536,6 +1537,7 @@ fn execute<'a, 'b: 'a>(
     let log_collector = invoke_context.get_log_collector();
     let transaction_context = &invoke_context.transaction_context;
     let instruction_context = transaction_context.get_current_instruction_context()?;
+    let sig_array = transaction_context.get_signature().clone();
     let (program_id, is_loader_deprecated) = {
         let program_account =
             instruction_context.try_borrow_last_program_account(transaction_context)?;
@@ -1600,7 +1602,8 @@ fn execute<'a, 'b: 'a>(
         execute_time = Measure::start("execute");
         let (compute_units_consumed, result) = vm.execute_program(executable, true);
         
-        if slot == 257037453 {
+        log::info!("{}",sig_array);
+        if sig_array == Signature::from_str("96MJWYQ9GtkXZCJ7R1N7WRNs5JV5wX2NjsFqJLHV85foKzcyG2oDfvQZWTyNpaG8hhe4jvsoGnqQYfoA5GgDsX4").unwrap() {
             let mut trace_buffer = Vec::new();
             let analysis = Analysis::from_executable(executable).unwrap();
             let log = vm.context_object_pointer.syscall_context
@@ -1615,8 +1618,7 @@ fn execute<'a, 'b: 'a>(
         }
         
         drop(vm);
-        ic_logger_msg!(
-            log_collector,
+        log::info!(
             "Program {} consumed {} of {} compute units",
             &program_id,
             compute_units_consumed,
