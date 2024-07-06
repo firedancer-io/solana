@@ -2602,8 +2602,6 @@ impl ClusterInfo {
         thread_pool: &ThreadPool,
         last_print: &mut Instant,
         should_check_duplicate_instance: bool,
-        // FIREDANCER: Receive channel for communicated cluster contact info after CRDS updates
-        send_firedancer: &mut Option<Instant>,
     ) -> Result<(), GossipError> {
         let _st = ScopedTimer::from(&self.stats.gossip_listen_loop_time);
         const RECV_TIMEOUT: Duration = Duration::from_secs(1);
@@ -2644,13 +2642,6 @@ impl ClusterInfo {
             submit_gossip_stats(&self.stats, &self.gossip, &stakes);
             *last_print = Instant::now();
         }
-        // FIREDANCER: Publish newly received gossip information to Firedancer periodically
-        if let Some(last_update) = send_firedancer {
-            if last_update.elapsed() > Duration::from_secs(5) {
-                unsafe { self.firedancer_send_cluster_nodes() };
-                *last_update = Instant::now();
-            }
-        }
         self.stats
             .gossip_listen_loop_iterations_since_last_report
             .add_relaxed(1);
@@ -2660,11 +2651,10 @@ impl ClusterInfo {
     /// FIREDANCER: Constants for sending cluster nodes over IPC
     const FIREDANCER_CLUSTER_NODE_CNT: u64 = 200*201 - 1; /* -1 because it doesn't include itself */
     const FIREDANCER_CLUSTER_NODE_SZ: u64 = 8 + Self::FIREDANCER_CLUSTER_NODE_CNT * 38;
+    const FIREDANCER_CLUSTER_NODE_PLUGIN_SZ: u64 = 8 + Self::FIREDANCER_CLUSTER_NODE_CNT * (58 + 12 * 34);
 
     /// FIREDANCER: Publish current gossiped cluster contact information to Firedancer
-    unsafe fn firedancer_send_cluster_nodes(
-        &self,
-    ) {
+    unsafe fn firedancer_send_cluster_nodes(&self) {
         let peers = self.tvu_peers();
         if peers.len() > Self::FIREDANCER_CLUSTER_NODE_CNT as usize {
             warn!("cluster_nodes len {} exceeds max_elements {}", peers.len(), Self::FIREDANCER_CLUSTER_NODE_CNT);
@@ -2693,6 +2683,91 @@ impl ClusterInfo {
             fn fd_ext_poh_publish_cluster_info(data: *const u8, len: u64);
         }
         fd_ext_poh_publish_cluster_info(memory.as_ptr(), 8 + len as u64 * 38);
+
+        let all_peers = self.all_peers();
+        if all_peers.len() > Self::FIREDANCER_CLUSTER_NODE_CNT as usize {
+            warn!("all_peers len {} exceeds max_elements {}", all_peers.len(), Self::FIREDANCER_CLUSTER_NODE_CNT);
+        }
+
+        let len = usize::min(Self::FIREDANCER_CLUSTER_NODE_CNT as usize, all_peers.len());
+
+        let mut memory = Vec::new();
+        memory.resize(Self::FIREDANCER_CLUSTER_NODE_PLUGIN_SZ as usize, 0);
+
+        memory[0..8].copy_from_slice(&len.to_le_bytes());
+
+        for (i, node) in all_peers.iter().enumerate().take(len) {
+            let version = self.get_node_version(node.0.pubkey());
+
+            use std::net::SocketAddrV4;
+            let gossip_socket = node.0.gossip().unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let rpc_socket = node.0.rpc().unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let rpc_pubsub_socket = node.0.rpc_pubsub().unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let serve_repair_socket_udp = node.0.serve_repair(solana_client::connection_cache::Protocol::UDP).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let serve_repair_socket_quic = node.0.serve_repair(solana_client::connection_cache::Protocol::QUIC).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            
+            let tpu_socket_udp = node.0.tpu(solana_client::connection_cache::Protocol::UDP).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let tpu_socket_quic = node.0.tpu(solana_client::connection_cache::Protocol::QUIC).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let tvu_socket_udp = node.0.tvu(solana_client::connection_cache::Protocol::UDP).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let tvu_socket_quic = node.0.tvu(solana_client::connection_cache::Protocol::QUIC).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let tpu_forwards_socket_udp = node.0.tpu_forwards(solana_client::connection_cache::Protocol::UDP).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let tpu_forwards_socket_quic = node.0.tpu_forwards(solana_client::connection_cache::Protocol::QUIC).unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+            let tpu_vote_socket = node.0.tpu_vote().unwrap_or(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)));
+
+            let wallclock = node.0.wallclock();
+            let shred_version = node.0.shred_version();
+            let pubkey_bytes = node.0.pubkey().to_bytes();
+
+            let offset = 8 + i * (58 + 12 * 6);
+            memory[offset..offset+32].copy_from_slice(&pubkey_bytes);
+            memory[offset+32..offset+40].copy_from_slice(&wallclock.to_le_bytes());
+            memory[offset+40..offset+42].copy_from_slice(&shred_version.to_le_bytes());
+
+            if let Some(version) = version {
+                memory[offset+42] = 1;
+                memory[offset+43..offset+45].copy_from_slice(&version.major.to_le_bytes());
+                memory[offset+45..offset+47].copy_from_slice(&version.minor.to_le_bytes());
+                memory[offset+47..offset+49].copy_from_slice(&version.patch.to_le_bytes());
+                if let Some(commit) = version.commit {
+                    memory[offset+49] = 1;
+                    memory[offset+50..offset+54].copy_from_slice(&commit.to_le_bytes());
+                } else {
+                    memory[offset+49] = 0;
+                }
+                memory[offset+54..offset+58].copy_from_slice(&version.feature_set.to_le_bytes());
+            } else {
+                memory[offset+42..offset+58].fill(0);
+            }
+
+            let offset = offset + 58;
+            for (i, socket) in [
+                gossip_socket,
+                rpc_socket,
+                rpc_pubsub_socket,
+                serve_repair_socket_udp,
+                serve_repair_socket_quic,
+                tpu_socket_udp,
+                tpu_socket_quic,
+                tvu_socket_udp,
+                tvu_socket_quic,
+                tpu_forwards_socket_udp,
+                tpu_forwards_socket_quic,
+                tpu_vote_socket,
+            ].iter().enumerate() {
+                let offset = offset + i * 6;
+                let (ip, port) = match socket {
+                    SocketAddr::V4(addr) => (addr.ip().octets(), addr.port()),
+                    SocketAddr::V6(_) => ([0; 4], 0),
+                };
+                memory[offset..offset+4].copy_from_slice(&ip);
+                memory[offset+4..offset+6].copy_from_slice(&port.to_le_bytes());
+            }
+        }
+
+        extern "C" {
+            fn fd_ext_plugin_publish_contact_info(data: *const u8, len: u64);
+        }
+        fd_ext_plugin_publish_contact_info(memory.as_ptr(), 8 + len as u64 * (58 + 12 * 6));
     }
 
     pub(crate) fn start_socket_consume_thread(
@@ -2744,11 +2819,8 @@ impl ClusterInfo {
             .name("solGossipListen".to_string())
             .spawn(move || {
                 // FIREDANCER: We should send a cluster node contact update immediately
-                let mut last_update = if send_firedancer {
-                    Some(Instant::now() - Duration::from_secs(5))
-                } else {
-                    None
-                };
+                let mut last_update = Instant::now() - Duration::from_secs(5);
+
                 while !exit.load(Ordering::Relaxed) {
                     if let Err(err) = self.run_listen(
                         &recycler,
@@ -2758,8 +2830,6 @@ impl ClusterInfo {
                         &thread_pool,
                         &mut last_print,
                         should_check_duplicate_instance,
-                        // FIREDANCER: Send the cluster contact info over the IPC boundary to Firedancer
-                        &mut last_update,
                     ) {
                         match err {
                             GossipError::RecvTimeoutError(RecvTimeoutError::Disconnected) => break,
@@ -2782,6 +2852,14 @@ impl ClusterInfo {
                                 std::process::exit(1);
                             }
                             _ => error!("gossip run_listen failed: {}", err),
+                        }
+                    }
+
+                    // FIREDANCER: Send the cluster contact info over the IPC boundary to Firedancer
+                    if send_firedancer {
+                        if last_update.elapsed() > Duration::from_secs(5) {
+                            unsafe { self.firedancer_send_cluster_nodes() };
+                            last_update = Instant::now();
                         }
                     }
                 }
