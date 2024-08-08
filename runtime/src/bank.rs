@@ -267,7 +267,7 @@ pub extern "C" fn fd_ext_bank_verify_precompiles( bank: *const std::ffi::c_void,
 }
 
 #[no_mangle]
-pub extern "C" fn fd_ext_bank_load_and_execute_txns( bank: *const std::ffi::c_void, txns: *const std::ffi::c_void, txn_count: u64, out_load_results: *mut i32, out_executing_results: *mut i32, out_executed_results: *mut i32 ) -> *mut std::ffi::c_void {
+pub extern "C" fn fd_ext_bank_load_and_execute_txns( bank: *const std::ffi::c_void, txns: *const std::ffi::c_void, txn_count: u64, out_load_results: *mut i32, out_executing_results: *mut i32, out_executed_results: *mut i32, out_consumed_cus: *mut u32 ) -> *mut std::ffi::c_void {
     let txns = unsafe {
         std::slice::from_raw_parts(txns as *const SanitizedTransaction, txn_count as usize)
     };
@@ -291,6 +291,8 @@ pub extern "C" fn fd_ext_bank_load_and_execute_txns( bank: *const std::ffi::c_vo
         match &output.execution_results[i as usize] {
             TransactionExecutionResult::Executed { details, .. } => {
                 unsafe { *out_executing_results.offset(i as isize) = 0 };
+                /* Executed CUs must be less than the block CU limit, which is much less than UINT_MAX, so the cast should be safe */
+                unsafe { *out_consumed_cus.offset(i as isize) = details.executed_units.try_into().unwrap() };
                 match &details.status {
                     Ok(_) => unsafe { *out_executed_results.offset(i as isize) = 0 },
                     Err(err) => unsafe { *out_executed_results.offset(i as isize) = transaction_error_to_code( err ) },
